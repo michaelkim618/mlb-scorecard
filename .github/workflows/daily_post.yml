@@ -2,7 +2,6 @@ name: MLB Scorecard Daily Auto Post
 
 on:
   schedule:
-    # 모든 시간은 UTC 기준 (PST = UTC-8)
     - cron: '0 10 * * *'   # 1차: 02:00 AM PST
     - cron: '5 20 * * *'   # 2차: 12:05 PM PST
     - cron: '5 23 * * *'   # 3차: 03:05 PM PST
@@ -30,26 +29,29 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: 날짜 설정
+        id: set_date
         run: |
           if [ -n "${{ github.event.inputs.date }}" ]; then
-            echo "RUN_DATE=${{ github.event.inputs.date }}" >> $GITHUB_ENV
+            RUN_DATE="${{ github.event.inputs.date }}"
           else
-            echo "RUN_DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)" >> $GITHUB_ENV
+            RUN_DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)
           fi
+          echo "RUN_DATE=$RUN_DATE" >> $GITHUB_OUTPUT
+          echo "날짜 설정됨: $RUN_DATE"
 
       - name: MLB 예측 실행
         env:
           SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
-        run: python src/scorecard_pipeline.py --date $RUN_DATE
+        run: python src/scorecard_pipeline.py --date ${{ steps.set_date.outputs.RUN_DATE }}
 
       - name: 슬라이드 생성
-        run: python instagram/generate_slides_v2.py --date $RUN_DATE
+        run: python instagram/generate_slides_v2.py --date ${{ steps.set_date.outputs.RUN_DATE }}
 
       - name: Instagram 포스팅 (Zernio)
         env:
           ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
           INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
-        run: python instagram/post_to_instagram.py --date $RUN_DATE
+        run: python instagram/post_to_instagram.py --date ${{ steps.set_date.outputs.RUN_DATE }}
 
       - name: Twitter/X 포스팅
         env:
@@ -57,4 +59,4 @@ jobs:
           TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-        run: python src/post_to_twitter.py --date $RUN_DATE
+        run: python src/post_to_twitter.py --date ${{ steps.set_date.outputs.RUN_DATE }}
