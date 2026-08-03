@@ -41,13 +41,60 @@ def post_tweet(text: str) -> dict:
     resp.raise_for_status()
     return resp.json()
 
-def load_predictions(post_date: str) -> dict:
-    """output/{date}_predictions.json 읽기"""
-    pred_file = DATA_DIR / f"{post_date}_predictions.json"
+def abbr(team_name: str) -> str:
+    MAP = {
+        "Los Angeles Dodgers":"LAD","Chicago Cubs":"CHC","Boston Red Sox":"BOS",
+        "Chicago White Sox":"CHW","Philadelphia Phillies":"PHI","Washington Nationals":"WSH",
+        "Cincinnati Reds":"CIN","Oakland Athletics":"OAK","Houston Astros":"HOU",
+        "Toronto Blue Jays":"TOR","New York Yankees":"NYY","New York Mets":"NYM",
+        "Atlanta Braves":"ATL","Miami Marlins":"MIA","St. Louis Cardinals":"STL",
+        "Milwaukee Brewers":"MIL","Minnesota Twins":"MIN","Kansas City Royals":"KC",
+        "Cleveland Guardians":"CLE","Detroit Tigers":"DET","Tampa Bay Rays":"TB",
+        "Baltimore Orioles":"BAL","Los Angeles Angels":"LAA","Seattle Mariners":"SEA",
+        "Texas Rangers":"TEX","Colorado Rockies":"COL","Arizona Diamondbacks":"ARI",
+        "San Diego Padres":"SD","San Francisco Giants":"SF","Pittsburgh Pirates":"PIT",
+    }
+    for full, short in MAP.items():
+        if full.lower() in team_name.lower():
+            return short
+    return team_name[:3].upper()
+
+def sp_name(pitcher_str: str) -> str:
+    name = pitcher_str.split("(")[0].strip()
+    parts = name.split()
+    if len(parts) >= 2:
+        return f"{parts[0][0]}. {parts[-1]}"
+    return name
+
+def load_predictions() -> list:
+    """output/predictions.json 읽기 (scorecard_pipeline이 생성)"""
+    pred_file = DATA_DIR / "predictions.json"
     if pred_file.exists():
-        with open(pred_file) as f:
+        with open(pred_file, encoding="utf-8") as f:
             return json.load(f)
-    return {}
+    return []
+
+def get_top_picks(preds: list, n=5) -> list:
+    picks = []
+    for g in preds:
+        wp = g.get("win_prob", {})
+        if not wp: continue
+        away_pct = wp.get("away", 50)
+        home_pct = wp.get("home", 50)
+        if home_pct >= away_pct and home_pct >= 55:
+            picks.append({"pick": abbr(g.get("home","???")), "opp": abbr(g.get("away","???")),
+                          "away": abbr(g.get("away","???")), "home": abbr(g.get("home","???")),
+                          "pct": f"{home_pct:.0f}%", "pct_val": home_pct,
+                          "away_sp": sp_name(g.get("away_pitcher","TBD")),
+                          "home_sp": sp_name(g.get("home_pitcher","TBD"))})
+        elif away_pct > home_pct and away_pct >= 55:
+            picks.append({"pick": abbr(g.get("away","???")), "opp": abbr(g.get("home","???")),
+                          "away": abbr(g.get("away","???")), "home": abbr(g.get("home","???")),
+                          "pct": f"{away_pct:.0f}%", "pct_val": away_pct,
+                          "away_sp": sp_name(g.get("away_pitcher","TBD")),
+                          "home_sp": sp_name(g.get("home_pitcher","TBD"))})
+    picks.sort(key=lambda x: x["pct_val"], reverse=True)
+    return picks[:n]
 
 def format_date_label(post_date: str) -> str:
     """2025-08-04 → AUG 4, 2025"""
@@ -63,10 +110,10 @@ def main():
     post_date = args.date
     date_label = format_date_label(post_date)
 
-    # 예측 데이터 로드 (있으면 사용, 없으면 기본 텍스트)
-    preds = load_predictions(post_date)
-    top_picks = preds.get("top_picks", [])
-    total_games = preds.get("total_games", 15)
+    # 예측 데이터 로드
+    preds = load_predictions()
+    top_picks = get_top_picks(preds, n=5)
+    total_games = len(preds)
 
     # ── Tweet 1: 커버 ─────────────────────────────────────────────────────────
     tweet1 = (
@@ -82,11 +129,10 @@ def main():
         t = top_picks[0]
         tweet2 = (
             f"⭐ TOP PICK | {date_label}\n\n"
-            f"{t.get('away','???')} @ {t.get('home','???')} "
-            f"→ 🔵 {t.get('pick','???')} {t.get('pct','??%')}\n\n"
-            f"SP: {t.get('away_sp','TBD')} vs {t.get('home_sp','TBD')}\n\n"
+            f"{t['away']} @ {t['home']} → 🔵 {t['pick']} {t['pct']}\n\n"
+            f"SP: {t['away_sp']} vs {t['home_sp']}\n\n"
             "Scorecard: SP(30%) + BP(20%) + BAT(35%) + SIT(15%)\n\n"
-            f"#{t.get('pick','MLB')} #MLBPicks #Baseball"
+            f"#{t['pick']} #MLBPicks #Baseball"
         )
     else:
         tweet2 = (
@@ -99,8 +145,8 @@ def main():
     # ── Tweet 3: FULL CARD ───────────────────────────────────────────────────
     if top_picks:
         picks_lines = "\n".join([
-            f"{'⭐' if i==0 else '✅'} {p.get('pick','???')} {p.get('pct','??%')} vs {p.get('opp','???')}"
-            for i, p in enumerate(top_picks[:5])
+            f"{'⭐' if i==0 else '✅'} {p['pick']} {p['pct']} vs {p['opp']}"
+            for i, p in enumerate(top_picks)
         ])
         tweet3 = (
             f"📋 {date_label} FULL CARD\n\n"

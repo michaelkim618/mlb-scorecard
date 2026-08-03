@@ -22,3 +22,4 @@ output/
 # Models (재생성 가능)
 models/*.pkl
 models/*.joblib
+slides/
