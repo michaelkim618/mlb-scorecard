@@ -27,7 +27,7 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent.parent / "slides"
 
 SLIDE_FILES = [
     "slide_01_cover.png",

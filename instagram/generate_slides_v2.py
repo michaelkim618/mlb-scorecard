@@ -6,8 +6,20 @@ generate_slides_v2.py
 
 from PIL import Image, ImageDraw, ImageFont
 import os
+import sys
+import argparse
+from datetime import date
+from pathlib import Path
 
-OUTPUT_DIR = "/Users/michaelkim/Desktop/MLB_Scorecard_Instagram"
+# 날짜 인자 파싱 (GitHub Actions 또는 로컬 모두 지원)
+_parser = argparse.ArgumentParser()
+_parser.add_argument("--date", default=str(date.today()))
+_args, _ = _parser.parse_known_args()
+POST_DATE = _args.date
+
+# 날짜별 폴더에 저장 (GitHub Actions: ./slides/{date}, 로컬: Google Drive)
+_base = Path(__file__).parent.parent
+OUTPUT_DIR = str(_base / "slides" / POST_DATE)
 SIZE = (1080, 1080)
 
 # Color palette

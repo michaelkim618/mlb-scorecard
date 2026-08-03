@@ -42,7 +42,7 @@ jobs:
       - name: MLB 예측 실행
         env:
           SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
-        run: python src/scorecard_pipeline.py --date ${{ steps.set_date.outputs.RUN_DATE }}
+        run: python src/scorecard_pipeline.py ${{ steps.set_date.outputs.RUN_DATE }}
 
       - name: 슬라이드 생성
         run: python instagram/generate_slides_v2.py --date ${{ steps.set_date.outputs.RUN_DATE }}
