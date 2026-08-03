@@ -1,0 +1,61 @@
+name: MLB Scorecard Daily Auto Post
+
+on:
+  schedule:
+    # 모든 시간은 UTC 기준 (PST = UTC-8)
+    - cron: '0 10 * * *'   # 1차: 02:00 AM PST (예측 + 포스팅)
+    - cron: '5 20 * * *'   # 2차: 12:05 PM PST (경기 시작 전)
+    - cron: '5 23 * * *'   # 3차: 03:05 PM PST (중간)
+    - cron: '30 8 * * *'   # 4차: 12:30 AM PST (결과 정리)
+  workflow_dispatch:        # 수동 실행 버튼
+    inputs:
+      date:
+        description: '날짜 (YYYY-MM-DD), 비우면 오늘'
+        required: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: 날짜 설정
+        id: date
+        run: |
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            echo "DATE=${{ github.event.inputs.date }}" >> $GITHUB_ENV
+          else
+            echo "DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)" >> $GITHUB_ENV
+          fi
+
+      - name: MLB 예측 실행
+        env:
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: python src/scorecard_pipeline.py --date ${{ env.DATE }}
+
+      - name: 슬라이드 생성
+        run: python instagram/generate_slides_v2.py --date ${{ env.DATE }}
+
+      - name: Instagram 포스팅 (Zernio)
+        env:
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+        run: python instagram/post_to_instagram.py --date ${{ env.DATE }}
+
+      - name: Twitter/X 포스팅
+        env:
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+          TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
+          TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
+        run: python src/post_to_twitter.py --date ${{ env.DATE }}

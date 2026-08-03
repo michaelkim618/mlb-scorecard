@@ -1,0 +1,24 @@
+# API Keys & Secrets
+.env
+secrets.py
+config/secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Data & Output (large files)
+data/
+output/
+*.csv
+*.json
+
+# OS
+.DS_Store
+
+# Models (재생성 가능)
+models/*.pkl
+models/*.joblib
