@@ -1,0 +1,49 @@
+{
+  "offense": {
+    "batting_avg_last10":    0.40,
+    "runs_per_game_last10":  0.40,
+    "hr_last10":             0.10,
+    "league_rank":           0.10
+  },
+  "defense": {
+    "starter_era_whip":      0.30,
+    "bullpen_era_record":    0.30,
+    "closer_save_era":       0.30,
+    "runs_allowed_last10":   0.10
+  },
+  "home_bonus": 0.03,
+  "simulation": {
+    "iterations": 10000,
+    "score_scale": 9.0
+  },
+  "value_bet": {
+    "edge_threshold_pct": 8.0,
+    "hot_sp_edge_threshold_pct": 14.0,
+    "hot_opp_sp_edge_threshold_pct": 14.0,
+    "extreme_edge_warning_pct": 30.0,
+    "consensus_min_model_pct": 63.0,
+    "consensus_max_edge_pct": 6.0
+  },
+  "blend": {
+    "ml_weight":  0.30,
+    "mc_weight":  0.70
+  },
+  "scorecard": {
+    "sp_weight":  0.30,
+    "bp_weight":  0.20,
+    "bat_weight": 0.35,
+    "sit_weight": 0.15,
+    "home_bonus": 3.0,
+    "sigmoid_k":  0.055,
+    "tbd_penalty_score": 45.0,
+    "hard_cap": 67.0,
+    "hard_cap_opp_threshold": 50.0,
+    "hard_cap_reduced": 63.0,
+    "coors_sp_penalty": 5.0,
+    "coors_bat_bonus": 4.0,
+    "sp_era_risk_threshold": 5.0,
+    "sp_era_risk_bat_bonus": 8.0,
+    "sp_era_risk_bat_min": 60.0,
+    "both_sp_high_era_threshold": 5.0
+  }
+}
