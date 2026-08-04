@@ -1,11 +1,11 @@
 name: MLB Scorecard Daily Auto Post
 
 on:
-  schedule:
-    - cron: '0 10 * * *'   # 1차: 02:00 AM PST
-    - cron: '5 20 * * *'   # 2차: 12:05 PM PST
-    - cron: '5 23 * * *'   # 3차: 03:05 PM PST
-    - cron: '30 8 * * *'   # 4차: 12:30 AM PST
+  # schedule:  ← 스케줄 홀드 중 (재개 시 주석 해제)
+  #   - cron: '0 10 * * *'   # 1차: 02:00 AM PST
+  #   - cron: '5 20 * * *'   # 2차: 12:05 PM PST
+  #   - cron: '5 23 * * *'   # 3차: 03:05 PM PST
+  #   - cron: '30 8 * * *'   # 4차: 12:30 AM PST
   workflow_dispatch:
     inputs:
       date:
