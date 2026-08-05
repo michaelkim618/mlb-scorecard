@@ -1,19 +1,42 @@
 name: MLB Scorecard Daily Auto Post
 
 on:
-  # schedule:  ← 스케줄 홀드 중 (재개 시 주석 해제)
-  #   - cron: '0 10 * * *'   # 1차: 02:00 AM PST
-  #   - cron: '5 20 * * *'   # 2차: 12:05 PM PST
-  #   - cron: '5 23 * * *'   # 3차: 03:05 PM PST
-  #   - cron: '30 8 * * *'   # 4차: 12:30 AM PST
+  schedule:
+    # 매시간 실행 (PST 오전 6시 ~ 자정) = UTC 오후 2시 ~ 오전 8시
+    # PST = UTC-8, 따라서:
+    - cron: '0 14 * * *'   # 06:00 PST
+    - cron: '0 15 * * *'   # 07:00 PST
+    - cron: '0 16 * * *'   # 08:00 PST
+    - cron: '0 17 * * *'   # 09:00 PST
+    - cron: '0 18 * * *'   # 10:00 PST
+    - cron: '0 19 * * *'   # 11:00 PST
+    - cron: '0 20 * * *'   # 12:00 PST
+    - cron: '0 21 * * *'   # 13:00 PST
+    - cron: '0 22 * * *'   # 14:00 PST
+    - cron: '0 23 * * *'   # 15:00 PST
+    - cron: '0 0 * * *'    # 16:00 PST
+    - cron: '0 1 * * *'    # 17:00 PST
+    - cron: '0 2 * * *'    # 18:00 PST
+    - cron: '0 3 * * *'    # 19:00 PST
+    - cron: '0 4 * * *'    # 20:00 PST
+    - cron: '0 5 * * *'    # 21:00 PST
+    - cron: '0 6 * * *'    # 22:00 PST
+    - cron: '0 7 * * *'    # 23:00 PST
+    # 결과 포스팅: 다음날 오전 6시 PST (UTC 오후 2시)
+    # → 위 첫번째 cron(06:00 PST)에서 --results 모드로 처리
+
   workflow_dispatch:
     inputs:
       date:
-        description: '날짜 (YYYY-MM-DD), 비우면 오늘'
+        description: '날짜 (YYYY-MM-DD), 비우면 오늘 PST'
         required: false
+      mode:
+        description: '실행 모드: prediction (기본) 또는 results'
+        required: false
+        default: 'prediction'
 
 jobs:
-  post:
+  check_and_post:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,62 +51,72 @@ jobs:
       - name: 패키지 설치
         run: pip install -r requirements.txt
 
-      - name: 날짜 설정
-        id: set_date
+      - name: 날짜 & 모드 설정
+        id: config
         run: |
+          # PST 기준 날짜
+          TZ='America/Los_Angeles'
+          PST_HOUR=$(TZ='America/Los_Angeles' date +%H)
+          PST_DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)
+          YESTERDAY=$(TZ='America/Los_Angeles' date -d "yesterday" +%Y-%m-%d 2>/dev/null || TZ='America/Los_Angeles' date -v-1d +%Y-%m-%d)
+
+          # 수동 실행이면 입력값 사용
           if [ -n "${{ github.event.inputs.date }}" ]; then
             RUN_DATE="${{ github.event.inputs.date }}"
           else
-            RUN_DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)
+            RUN_DATE="$PST_DATE"
           fi
-          echo "RUN_DATE=$RUN_DATE" >> $GITHUB_OUTPUT
-          echo "날짜 설정됨: $RUN_DATE"
 
-      - name: MLB 예측 실행
+          if [ -n "${{ github.event.inputs.mode }}" ]; then
+            MODE="${{ github.event.inputs.mode }}"
+          elif [ "$PST_HOUR" = "06" ]; then
+            # 오전 6시 = 결과 포스팅 (전날 결과)
+            MODE="results"
+            RUN_DATE="$YESTERDAY"
+          else
+            MODE="prediction"
+          fi
+
+          echo "RUN_DATE=$RUN_DATE" >> $GITHUB_OUTPUT
+          echo "MODE=$MODE" >> $GITHUB_OUTPUT
+          echo "✅ 날짜: $RUN_DATE | 모드: $MODE | PST시각: $PST_HOUR시"
+
+      - name: 스마트 포스팅 체크 & 실행
         env:
           SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
-        run: python src/scorecard_pipeline.py ${{ steps.set_date.outputs.RUN_DATE }}
-
-      - name: 슬라이드 생성
-        run: python instagram/generate_slides_v2.py --date ${{ steps.set_date.outputs.RUN_DATE }}
-
-      - name: Instagram 포스팅 (Zernio)
-        env:
-          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
-          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
-        run: python instagram/post_to_instagram.py --date ${{ steps.set_date.outputs.RUN_DATE }}
-
-      - name: Twitter/X 포스팅
-        env:
           TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
           TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
           TWITTER_ACCESS_TOKEN: ${{ secrets.TWITTER_ACCESS_TOKEN }}
           TWITTER_ACCESS_SECRET: ${{ secrets.TWITTER_ACCESS_SECRET }}
-        run: python src/post_to_twitter.py --date ${{ steps.set_date.outputs.RUN_DATE }}
+          ZERNIO_API_KEY: ${{ secrets.ZERNIO_API_KEY }}
+          INSTAGRAM_ACCOUNT_ID: ${{ secrets.INSTAGRAM_ACCOUNT_ID }}
+        run: |
+          if [ "${{ steps.config.outputs.MODE }}" = "results" ]; then
+            python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }} --results
+          else
+            python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }}
+          fi
 
-      - name: 전날 결과 업데이트 (update_results)
-        env:
-          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
-        run: python src/update_results.py
-
-      - name: 웹 레포 체크아웃
+      - name: 웹 레포 업데이트 (결과 포스팅 후)
+        if: steps.config.outputs.MODE == 'results'
         uses: actions/checkout@v4
         with:
           repository: michaelkim618/mlb-scorecard-web
           token: ${{ secrets.WEB_REPO_PAT }}
           path: mlb-scorecard-web
 
-      - name: season_results.json 업데이트
-        run: python src/update_season_results.py mlb-scorecard-web
+      - name: season_results.json & predictions.json 업데이트
+        if: steps.config.outputs.MODE == 'results'
+        run: |
+          python src/update_season_results.py mlb-scorecard-web
+          cp output/predictions.json mlb-scorecard-web/public/predictions.json
 
-      - name: predictions.json 복사 (오늘 예측)
-        run: cp output/predictions.json mlb-scorecard-web/public/predictions.json
-
-      - name: 웹 레포에 커밋 & 푸시
+      - name: 웹 레포 커밋 & 푸시
+        if: steps.config.outputs.MODE == 'results'
         working-directory: mlb-scorecard-web
         run: |
           git config user.name "MLB Scorecard Bot"
           git config user.email "bot@mlb-scorecard.com"
           git add public/season_results.json public/predictions.json
-          git diff --staged --quiet || git commit -m "📊 Auto-update: $(TZ='America/Los_Angeles' date +%Y-%m-%d) results & predictions"
+          git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} results"
           git push
