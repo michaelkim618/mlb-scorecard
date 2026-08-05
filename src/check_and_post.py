@@ -37,8 +37,8 @@ MAX_PREDICTION_POSTS = 3
 GROUP_WINDOW_MIN = 45
 
 # 포스팅 트리거: 경기 시작 N분 전
-TRIGGER_BEFORE_MIN = 70   # 70분 전부터 60분 전 사이에 감지
-TRIGGER_AFTER_MIN  = 60
+TRIGGER_BEFORE_MIN = 100  # 최대 100분 전까지 감지 (매시간 실행 기준 완전 커버)
+TRIGGER_AFTER_MIN  = 40   # 최소 40분 전
 
 
 def get_state_file(game_date: str) -> Path:
