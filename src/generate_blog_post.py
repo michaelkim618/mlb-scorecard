@@ -58,11 +58,6 @@ def generate_daily_post(game_date: str, web_repo: Path):
     today_games = load_predictions(game_date)
     done_games = [g for g in today_games if g.get("model_correct") is not None]
 
-    # Case: no games today → skip post entirely
-    if not done_games:
-        print(f"⏭  {game_date}: No completed games found — skipping daily post.")
-        return None
-
     wins = sum(1 for g in done_games if g.get("model_correct") == True)
     losses = sum(1 for g in done_games if g.get("model_correct") == False)
     pct = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0
@@ -99,19 +94,32 @@ Home SP: {top_pick.get('home_pitcher', 'TBD')}"""
     # Date labels for title context
     from datetime import date as _date, timedelta as _td
     _d = _date.fromisoformat(game_date)
-    results_label = _d.strftime("%b %-d")                      # e.g. "Aug 4"
-    preview_label = (_d + _td(days=1)).strftime("%b %-d")      # e.g. "Aug 5"
-    has_preview   = top_pick is not None                       # False if no tomorrow games
+    results_label = _d.strftime("%b %-d")                  # e.g. "Aug 4"
+    preview_label = (_d + _td(days=1)).strftime("%b %-d")  # e.g. "Aug 5"
+    has_results   = len(done_games) > 0
+    has_preview   = top_pick is not None
 
-    # Title and context vary depending on whether tomorrow has games
-    if has_preview:
-        title_format    = f"{results_label} Results + {preview_label} Preview: [subtitle in {author}'s voice]"
-        title_examples  = f'- "{results_label} Results + {preview_label} Preview: The Model Was On Fire"\n- "{results_label} Results + {preview_label} Preview: One Miss, Zero Regrets"'
-        context_note    = f"- It reviews {results_label} results\n- It previews {preview_label} upcoming picks (tomorrow's slate)"
+    # Case: no games today AND no games tomorrow → skip entirely
+    if not has_results and not has_preview:
+        print(f"⏭  {game_date}: No games today or tomorrow — skipping daily post.")
+        return None
+
+    # Title and context vary by case
+    if not has_results and has_preview:
+        # Off day today, games tomorrow → preview-only post
+        title_format   = f"{preview_label} Preview: [subtitle in {author}'s voice]"
+        title_examples = f'- "{preview_label} Preview: Here\'s What the Data Says"\n- "{preview_label} Preview: The Slate I\'ve Been Waiting For"'
+        context_note   = f"- No MLB games were played today ({results_label}) — it's an off day\n- Focus entirely on previewing {preview_label}'s upcoming slate"
+    elif has_results and has_preview:
+        # Normal: results + preview
+        title_format   = f"{results_label} Results + {preview_label} Preview: [subtitle in {author}'s voice]"
+        title_examples = f'- "{results_label} Results + {preview_label} Preview: The Model Was On Fire"\n- "{results_label} Results + {preview_label} Preview: One Miss, Zero Regrets"'
+        context_note   = f"- It reviews {results_label} results\n- It previews {preview_label} upcoming picks (tomorrow's slate)"
     else:
-        title_format    = f"{results_label} Results: [subtitle in {author}'s voice]"
-        title_examples  = f'- "{results_label} Results: The Numbers Don\'t Lie"\n- "{results_label} Results: Breaking Down Every Pick"'
-        context_note    = f"- It reviews {results_label} results\n- No games scheduled tomorrow, so focus entirely on today's analysis"
+        # Results only: no games tomorrow
+        title_format   = f"{results_label} Results: [subtitle in {author}'s voice]"
+        title_examples = f'- "{results_label} Results: The Numbers Don\'t Lie"\n- "{results_label} Results: Breaking Down Every Pick"'
+        context_note   = f"- It reviews {results_label} results\n- No games scheduled tomorrow — focus entirely on today's analysis"
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -122,13 +130,12 @@ Writing style: {persona['style']}
 
 IMPORTANT: Write the ENTIRE blog post in ENGLISH. All text, headings, summaries, labels, and content must be in English only.
 
-Context: This post is published the morning after {game_date} games concluded.
-{context_note}
+Context: {context_note}
 
-{game_date} MLB prediction results:
+{f'''{game_date} MLB prediction results:
 - Overall: {wins}W-{losses}L ({pct}%)
 - Game-by-game results:
-{chr(10).join(games_summary)}
+{chr(10).join(games_summary)}''' if has_results else f"No games were played on {results_label} (off day)."}
 
 {f"{preview_label} Top Pick data:{chr(10)}{top_pick_summary}" if top_pick_summary else "No games scheduled for tomorrow."}
 
