@@ -95,7 +95,7 @@ Home SP: {top_pick.get('home_pitcher', 'TBD')}"""
     _d = _date.fromisoformat(game_date)
     _tomorrow = (_d + _td(days=1)).isoformat()
     results_label  = _d.strftime("%b %-d")          # e.g. "Aug 4"
-    preview_label  = (_d + _td(days=2)).strftime("%b %-d")  # e.g. "Aug 6" (2 days out = next day picks)
+    preview_label  = (_d + _td(days=1)).strftime("%b %-d")  # e.g. "Aug 5" (next day picks)
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
