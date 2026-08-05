@@ -57,6 +57,12 @@ def generate_daily_post(game_date: str, web_repo: Path):
     # Today's results
     today_games = load_predictions(game_date)
     done_games = [g for g in today_games if g.get("model_correct") is not None]
+
+    # Case: no games today → skip post entirely
+    if not done_games:
+        print(f"⏭  {game_date}: No completed games found — skipping daily post.")
+        return None
+
     wins = sum(1 for g in done_games if g.get("model_correct") == True)
     losses = sum(1 for g in done_games if g.get("model_correct") == False)
     pct = round(wins / (wins + losses) * 100, 1) if (wins + losses) > 0 else 0
@@ -93,9 +99,19 @@ Home SP: {top_pick.get('home_pitcher', 'TBD')}"""
     # Date labels for title context
     from datetime import date as _date, timedelta as _td
     _d = _date.fromisoformat(game_date)
-    _tomorrow = (_d + _td(days=1)).isoformat()
-    results_label  = _d.strftime("%b %-d")          # e.g. "Aug 4"
-    preview_label  = (_d + _td(days=1)).strftime("%b %-d")  # e.g. "Aug 5" (next day picks)
+    results_label = _d.strftime("%b %-d")                      # e.g. "Aug 4"
+    preview_label = (_d + _td(days=1)).strftime("%b %-d")      # e.g. "Aug 5"
+    has_preview   = top_pick is not None                       # False if no tomorrow games
+
+    # Title and context vary depending on whether tomorrow has games
+    if has_preview:
+        title_format    = f"{results_label} Results + {preview_label} Preview: [subtitle in {author}'s voice]"
+        title_examples  = f'- "{results_label} Results + {preview_label} Preview: The Model Was On Fire"\n- "{results_label} Results + {preview_label} Preview: One Miss, Zero Regrets"'
+        context_note    = f"- It reviews {results_label} results\n- It previews {preview_label} upcoming picks (tomorrow's slate)"
+    else:
+        title_format    = f"{results_label} Results: [subtitle in {author}'s voice]"
+        title_examples  = f'- "{results_label} Results: The Numbers Don\'t Lie"\n- "{results_label} Results: Breaking Down Every Pick"'
+        context_note    = f"- It reviews {results_label} results\n- No games scheduled tomorrow, so focus entirely on today's analysis"
 
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -107,28 +123,26 @@ Writing style: {persona['style']}
 IMPORTANT: Write the ENTIRE blog post in ENGLISH. All text, headings, summaries, labels, and content must be in English only.
 
 Context: This post is published the morning after {game_date} games concluded.
-- It reviews {results_label} results
-- It previews {preview_label} upcoming picks (tomorrow's slate)
+{context_note}
 
 {game_date} MLB prediction results:
 - Overall: {wins}W-{losses}L ({pct}%)
 - Game-by-game results:
 {chr(10).join(games_summary)}
 
-{f"{preview_label} Top Pick data:{chr(10)}{top_pick_summary}" if top_pick_summary else ""}
+{f"{preview_label} Top Pick data:{chr(10)}{top_pick_summary}" if top_pick_summary else "No games scheduled for tomorrow."}
 
 Write a blog post in {author}'s style as a JSON object. Make the content array visually rich with a variety of content types.
 
-TITLE FORMAT: The title MUST clearly indicate the date context. Use this structure:
-"{results_label} Results + {preview_label} Preview: [{author}'s personality-driven subtitle]"
+TITLE FORMAT: The title MUST clearly indicate the date context.
+Format to use: "{title_format}"
 Examples:
-- "Aug 4 Results + Aug 6 Preview: The Model Was On Fire Last Night"
-- "Aug 4 Results + Aug 6 Preview: One Miss, Zero Regrets — Here's Why"
+{title_examples}
 
 Return ONLY this JSON structure (no markdown code blocks):
 
 {{
-  "title": "{results_label} Results + {preview_label} Preview: [subtitle in {author}'s voice]",
+  "title": "{title_format}",
   "summary": "One-line English summary mentioning {results_label} results (under 100 characters)",
   "read_time": "3 min",
   "content": [
