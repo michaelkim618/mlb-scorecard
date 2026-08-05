@@ -105,11 +105,20 @@ jobs:
           token: ${{ secrets.WEB_REPO_PAT }}
           path: mlb-scorecard-web
 
-      - name: season_results.json & predictions.json 업데이트
+      - name: season_results.json & predictions.json & news.json 업데이트
         if: steps.config.outputs.MODE == 'results'
         run: |
           python src/update_season_results.py mlb-scorecard-web
+          python src/fetch_news.py mlb-scorecard-web
           cp output/predictions.json mlb-scorecard-web/public/predictions.json
+
+      - name: 블로그 포스트 자동 생성
+        if: steps.config.outputs.MODE == 'results'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: |
+          python src/generate_blog_post.py --date ${{ steps.config.outputs.RUN_DATE }} --web-repo mlb-scorecard-web || echo "블로그 생성 실패 (계속 진행)"
 
       - name: 웹 레포 커밋 & 푸시
         if: steps.config.outputs.MODE == 'results'
@@ -117,6 +126,6 @@ jobs:
         run: |
           git config user.name "MLB Scorecard Bot"
           git config user.email "bot@mlb-scorecard.com"
-          git add public/season_results.json public/predictions.json
-          git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} results"
+          git add public/season_results.json public/predictions.json public/news.json public/blog/
+          git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} results + blog"
           git push
