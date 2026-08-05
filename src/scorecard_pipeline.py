@@ -32,6 +32,7 @@ from lineup_fetcher       import (get_game_lineup, get_pitcher_handedness,
 from kalshi_client        import get_kalshi_prob
 from value_bet            import evaluate
 from injury_check         import get_injury_notes
+import requests as _requests
 
 OUTPUT_DIR  = Path(__file__).parent.parent / "output"
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "weights.json"
@@ -113,7 +114,91 @@ def run(game_date: Optional[str] = None) -> list:
     print(f"가중치: SP {SP_W:.0%} | BP {BP_W:.0%} | 타선 {BAT_W:.0%} | 상황 {SIT_W:.0%}")
     print(f"{'='*60}")
 
+    def _pitcher_gamelog_summary(gl: list, n: int = 5) -> list:
+        """게임로그 최근 n경기 요약 (대시보드 표시용)"""
+        if not gl:
+            return []
+        def _ip(s):
+            try:
+                parts = str(s).split(".")
+                return int(parts[0]) + (int(parts[1]) / 3 if len(parts) > 1 else 0)
+            except: return 0.0
+        recent = gl[-n:] if len(gl) >= n else gl
+        out = []
+        for s in recent:
+            ip_val = _ip(s.get("inningsPitched", "0"))
+            er     = int(float(s.get("earnedRuns", 0) or 0))
+            h      = int(float(s.get("hits", 0) or 0))
+            bb     = int(float(s.get("baseOnBalls", 0) or 0))
+            so     = int(float(s.get("strikeOuts", 0) or 0))
+            era_g  = round(er / ip_val * 9, 2) if ip_val > 0 else None
+            opp = s.get("_opponent", "")
+            is_home = s.get("_is_home", False)
+            opp_label = f"vs {opp}" if is_home else f"@ {opp}"
+            out.append({
+                "date":  s.get("_game_date", ""),
+                "opp":   opp_label,
+                "ip":    s.get("inningsPitched", "0"),
+                "er":    er,
+                "h":     h,
+                "bb":    bb,
+                "so":    so,
+                "era":   era_g,
+            })
+        return out
+
     standings_map = _safe(get_standings_map, {}, "순위표")
+
+    def _recent_form(team_id: int, before_date: str, n: int = 5) -> dict:
+        """팀 최근 n경기 W/L 결과 반환 (before_date 이전 경기만)"""
+        from datetime import datetime, timedelta
+        try:
+            end = datetime.strptime(before_date, "%Y-%m-%d") - timedelta(days=1)
+            start = end - timedelta(days=20)
+            url = (
+                f"https://statsapi.mlb.com/api/v1/schedule"
+                f"?sportId=1&teamId={team_id}"
+                f"&startDate={start.strftime('%Y-%m-%d')}"
+                f"&endDate={end.strftime('%Y-%m-%d')}"
+                f"&hydrate=decisions,linescore&gameType=R"
+            )
+            data = _requests.get(url, timeout=8).json()
+            results_list = []
+            for d in data.get("dates", []):
+                for gm in d.get("games", []):
+                    if gm.get("status", {}).get("abstractGameState") != "Final":
+                        continue
+                    t = gm.get("teams", {})
+                    away_t = t.get("away", {})
+                    home_t = t.get("home", {})
+                    is_away = away_t.get("team", {}).get("id") == team_id
+                    team_data = away_t if is_away else home_t
+                    opp_data  = home_t if is_away else away_t
+                    won = team_data.get("isWinner", False)
+                    ts  = team_data.get("score", 0)
+                    os  = opp_data.get("score", 0)
+                    results_list.append({
+                        "date": d["date"],
+                        "result": "W" if won else "L",
+                        "score": f"{ts}-{os}",
+                        "home": not is_away,
+                    })
+            recent = results_list[-n:] if len(results_list) >= n else results_list
+            wins   = sum(1 for r in recent if r["result"] == "W")
+            losses = len(recent) - wins
+            # 연승/연패 계산
+            streak = 0
+            if recent:
+                last_result = recent[-1]["result"]
+                for r in reversed(recent):
+                    if r["result"] == last_result:
+                        streak += 1 if last_result == "W" else -1
+                    else:
+                        break
+            return {"games": recent, "wins": wins, "losses": losses, "streak": streak}
+        except Exception:
+            return {"games": [], "wins": 0, "losses": 0, "streak": 0}
+
     games = get_games(game_date)
     if not games:
         print("경기 없음.")
@@ -137,6 +222,8 @@ def run(game_date: Optional[str] = None) -> list:
         # ── 1. 선발투수 분석 ──────────────────────────────────────────
         away_is_tbd = (away_pitcher in ("TBD", "", None) or away_pitcher_id is None)
         home_is_tbd = (home_pitcher in ("TBD", "", None) or home_pitcher_id is None)
+        away_gl = []
+        home_gl = []
 
         # 원정 선발투수: TBD면 로테이션 추정
         away_est_pitcher = None
@@ -513,7 +600,7 @@ def run(game_date: Optional[str] = None) -> list:
             # → 두 신호가 동시에 같은 팀 지목 → 고신뢰 예측 태그 부여
             _edge_val = vb.get("edge")
             _model_top = max(home_win_pct, away_win_pct)
-            if (bat_source != "team_stats"
+            if (bat_source == "lineup"
                     and _edge_val is not None
                     and _model_top >= CONSENSUS_MIN_MODEL_PCT
                     and abs(_edge_val) <= CONSENSUS_MAX_EDGE_PCT):
@@ -567,12 +654,16 @@ def run(game_date: Optional[str] = None) -> list:
             "status":       g.get("status", ""),
             "away":         away_name,
             "home":         home_name,
-            "away_standing": _team_standing(away_id),
-            "home_standing": _team_standing(home_id),
+            "away_standing":   _team_standing(away_id),
+            "home_standing":   _team_standing(home_id),
+            "away_recent_form": _recent_form(away_id, game_date),
+            "home_recent_form": _recent_form(home_id, game_date),
             "away_pitcher": away_pitcher,
             "away_pitcher_stats": away_pitcher_stats,
+            "away_pitcher_gamelog": _pitcher_gamelog_summary(away_gl if away_gl is not None else []),
             "home_pitcher": home_pitcher,
             "home_pitcher_stats": home_pitcher_stats,
+            "home_pitcher_gamelog": _pitcher_gamelog_summary(home_gl if home_gl is not None else []),
             "pred_model":   "scorecard",
             "win_prob": {
                 "away": away_win_pct,
@@ -626,6 +717,7 @@ def run(game_date: Optional[str] = None) -> list:
                 "away": g.get("actual_away"),
                 "home": g.get("actual_home"),
             },
+            "lineup_confirmed": bat_source == "lineup",
             "actual_winner":  actual_winner,
             "model_winner":   model_winner,
             "model_correct":  model_correct,
