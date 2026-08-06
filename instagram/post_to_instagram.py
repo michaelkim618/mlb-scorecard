@@ -155,8 +155,34 @@ def build_results_caption(post_date: str, preds: list) -> str:
     )
     return caption
 
+def capture_homepage() -> Path:
+    """홈페이지 스크린샷 캡처 → Path 반환"""
+    output_path = DATA_DIR / "homepage.png"
+    try:
+        from playwright.sync_api import sync_playwright
+        print("📸 홈페이지 스크린샷 캡처 중...")
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            page = browser.new_page(viewport={"width": 1080, "height": 1080})
+            page.goto("https://www.mlb-scorecard.com", wait_until="networkidle", timeout=30000)
+            page.wait_for_timeout(3000)
+            page.screenshot(
+                path=str(output_path),
+                clip={"x": 0, "y": 0, "width": 1080, "height": 1080},
+                type="png",
+            )
+            browser.close()
+        print(f"✅ 스크린샷 저장: {output_path}")
+        return output_path
+    except Exception as e:
+        print(f"⚠️  스크린샷 실패: {e}")
+        return None
+
 def upload_image(file_path: Path) -> str:
-    """커버 이미지 1장 업로드 → 공개 URL 반환"""
+    """이미지 업로드 → 공개 URL 반환"""
     print(f"  📤 업로드 중: {file_path.name}")
     presign_resp = requests.post(
         f"{ZERNIO_BASE_URL}/media/presign",
@@ -200,36 +226,19 @@ def main():
 
     print(f"📝 Caption preview:\n{'─'*40}\n{caption}\n{'─'*40}")
 
-    # 커버 이미지 1장만 사용 (없으면 스킵)
-    cover_path = SLIDES_DIR / args.date / "slide_01_cover.png"
-    if not cover_path.exists():
-        # 슬라이드가 없으면 기본 커버 찾기
-        slide_dir = SLIDES_DIR / args.date
-        if slide_dir.exists():
-            pngs = list(slide_dir.glob("*.png"))
-            cover_path = pngs[0] if pngs else None
-        else:
-            cover_path = None
-
     if args.dry_run:
         print("🧪 DRY RUN — 실제 포스팅 안 함")
-        print(f"   Image: {cover_path or 'No image found'}")
         return
 
+    # 홈페이지 스크린샷 캡처
+    cover_path = capture_homepage()
+
     if not cover_path or not cover_path.exists():
-        print("⚠️  커버 이미지 없음 — 이미지 없이 포스팅 시도")
-        # 이미지 없이 텍스트만 (Zernio가 지원하는 경우)
-        payload = {
-            "content": caption,
-            "platforms": [{"platform": "instagram", "accountId": INSTAGRAM_ACCOUNT_ID}],
-            "publishNow": True,
-        }
-        resp = requests.post(f"{ZERNIO_BASE_URL}/posts", headers=HEADERS, json=payload)
-        resp.raise_for_status()
-        result = resp.json()
-    else:
-        image_url = upload_image(cover_path)
-        result = post_single(image_url, caption)
+        print("❌ 이미지 없음 — 포스팅 중단")
+        sys.exit(1)
+
+    image_url = upload_image(cover_path)
+    result = post_single(image_url, caption)
 
     print("\n🎉 Instagram 포스팅 완료!")
     print(f"   Post ID: {result.get('post', {}).get('_id', 'N/A')}")

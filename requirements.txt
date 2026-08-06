@@ -3,3 +3,4 @@ requests-oauthlib
 Pillow
 python-dateutil
 pytz
+playwright
