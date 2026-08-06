@@ -188,6 +188,43 @@ def run_twitter_post(game_date: str, post_type: str = "prediction"):
         print(f"  ✅ 트위터 포스팅 완료")
 
 
+def copy_predictions_to_web(game_date: str):
+    """predictions.json → 웹 레포에 복사 (라인업 업데이트 반영)"""
+    src = OUTPUT_DIR / "predictions.json"
+    # GitHub Actions 환경: mlb-scorecard-web 이 체크아웃되어 있음
+    # 로컬 환경: 상위 폴더에 있음
+    web_candidates = [
+        BASE_DIR / "mlb-scorecard-web",          # GitHub Actions
+        BASE_DIR.parent / "mlb-scorecard-web",   # 로컬
+    ]
+    for web_repo in web_candidates:
+        dest = web_repo / "public" / "predictions.json"
+        if web_repo.exists() and src.exists():
+            import shutil
+            shutil.copy2(src, dest)
+            print(f"  📋 predictions.json → {dest} 복사 완료")
+            return True
+    print(f"  ⚠️  웹 레포 없음 — predictions.json 복사 스킵")
+    return False
+
+
+def needs_lineup_refresh(game_date: str, games: list) -> bool:
+    """포스팅된 그룹 중 라인업이 새로 확정된 경기가 있는지 체크"""
+    state = load_state(game_date)
+    posted_groups = state.get("predictions", [])
+    if not posted_groups:
+        return False
+
+    # 포스팅된 경기 중 라인업이 확정된 게 있고
+    # 이전에 미확정 상태였다면 갱신 필요
+    refreshed_groups = state.get("lineup_refreshed", [])
+    for g in games:
+        game_hour = g["game_time_pst"].strftime("%H:%M")
+        if game_hour in posted_groups and g["lineup_confirmed"] and game_hour not in refreshed_groups:
+            return True
+    return False
+
+
 def check_and_post_predictions(game_date: str):
     """예측 포스팅 체크 & 실행"""
     now_pst = datetime.now(PST)
@@ -219,13 +256,34 @@ def check_and_post_predictions(game_date: str):
         first_time = group[0]["game_time_str"]
         print(f"   그룹 {i+1}: {len(group)}경기  첫 경기 {first_time}  key={key}")
 
-    # 포스팅할 그룹 찾기
+    # ── 라인업 갱신 체크 (이미 포스팅된 그룹 중 새로 확정된 경우) ──────────────
+    refreshed_groups = state.get("lineup_refreshed", [])
+    lineup_refreshed = False
+    for group in groups:
+        key = group_key(group)
+        if key not in posted_groups:
+            continue  # 아직 포스팅 안 된 그룹은 나중에 처리
+        if key in refreshed_groups:
+            continue  # 이미 라인업 갱신됨
+        new_confirmations = [g for g in group if g["lineup_confirmed"]]
+        if new_confirmations:
+            print(f"\n🔄 그룹 {key} 라인업 신규 확정 ({len(new_confirmations)}팀) → predictions.json 갱신")
+            run_pipeline(game_date)
+            copy_predictions_to_web(game_date)
+            refreshed_groups.append(key)
+            state["lineup_refreshed"] = refreshed_groups
+            save_state(game_date, state)
+            lineup_refreshed = True
+            break  # 한 번에 하나씩
+
+    # ── 신규 그룹 포스팅 찾기 ────────────────────────────────────────────────
     for group in groups:
         key = group_key(group)
 
         # 이미 포스팅한 그룹이면 스킵
         if key in posted_groups:
-            print(f"\n⏭  그룹 {key} 이미 포스팅됨. 스킵.")
+            if not lineup_refreshed:
+                print(f"\n⏭  그룹 {key} 이미 포스팅됨. 스킵.")
             continue
 
         # 타이밍 체크 (60~70분 전)
@@ -242,6 +300,7 @@ def check_and_post_predictions(game_date: str):
         print(f"\n🚀 포스팅 실행! 그룹 {key} | #{post_num}차 | 라인업 확정: {confirmed_count}/{total_count}")
 
         run_pipeline(game_date)
+        copy_predictions_to_web(game_date)
         run_instagram_post(game_date)
         run_twitter_post(game_date, post_type="prediction")
 
@@ -255,7 +314,8 @@ def check_and_post_predictions(game_date: str):
         # 1개 그룹만 처리 후 종료 (다음 실행에서 다음 그룹 처리)
         break
     else:
-        print("\n✅ 지금 포스팅할 그룹 없음.")
+        if not lineup_refreshed:
+            print("\n✅ 지금 포스팅할 그룹 없음.")
 
 
 def check_and_post_results(game_date: str):

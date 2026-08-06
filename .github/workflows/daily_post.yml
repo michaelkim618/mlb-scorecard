@@ -111,11 +111,19 @@ jobs:
         run: |
           python src/fetch_news.py mlb-scorecard-web
 
-      - name: season_results.json & predictions.json 업데이트 (결과 모드)
+      - name: season_results.json 업데이트 (결과 모드)
         if: steps.config.outputs.MODE == 'results'
         run: |
           python src/update_season_results.py mlb-scorecard-web
-          cp output/predictions.json mlb-scorecard-web/public/predictions.json
+
+      - name: predictions.json 업데이트 (항상 - 라인업 확정 반영)
+        run: |
+          if [ -f output/predictions.json ]; then
+            cp output/predictions.json mlb-scorecard-web/public/predictions.json
+            echo "✅ predictions.json 복사 완료"
+          else
+            echo "⚠️  output/predictions.json 없음 — 스킵"
+          fi
 
       - name: 블로그 포스트 자동 생성 (결과 모드)
         if: steps.config.outputs.MODE == 'results'
