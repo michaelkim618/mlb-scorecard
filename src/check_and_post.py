@@ -256,18 +256,17 @@ def check_and_post_predictions(game_date: str):
         first_time = group[0]["game_time_str"]
         print(f"   그룹 {i+1}: {len(group)}경기  첫 경기 {first_time}  key={key}")
 
-    # ── 라인업 갱신 체크 (이미 포스팅된 그룹 중 새로 확정된 경우) ──────────────
+    # ── 라인업 갱신 체크 (포스팅 여부와 무관하게, 아직 미갱신 그룹 중 새로 확정된 경우) ──
     refreshed_groups = state.get("lineup_refreshed", [])
     lineup_refreshed = False
     for group in groups:
         key = group_key(group)
-        if key not in posted_groups:
-            continue  # 아직 포스팅 안 된 그룹은 나중에 처리
         if key in refreshed_groups:
             continue  # 이미 라인업 갱신됨
         new_confirmations = [g for g in group if g["lineup_confirmed"]]
         if new_confirmations:
-            print(f"\n🔄 그룹 {key} 라인업 신규 확정 ({len(new_confirmations)}팀) → predictions.json 갱신")
+            action = "포스팅 전" if key not in posted_groups else "포스팅 후"
+            print(f"\n🔄 그룹 {key} 라인업 신규 확정 ({len(new_confirmations)}팀, {action}) → predictions.json 갱신")
             run_pipeline(game_date)
             copy_predictions_to_web(game_date)
             refreshed_groups.append(key)
