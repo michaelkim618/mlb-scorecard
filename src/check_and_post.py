@@ -327,13 +327,30 @@ def check_and_post_results(game_date: str):
         print("✅ 오늘 결과 포스팅 이미 완료.")
         return
 
-    # update_results.py 실행
+    # update_results.py 실행 (JS 파일 업데이트)
     print("  🔄 경기 결과 업데이트 중...")
     result = subprocess.run(
         [sys.executable, "src/update_results.py"],
         capture_output=True, text=True, cwd=str(BASE_DIR)
     )
     print(result.stdout[-300:] if result.stdout else "")
+
+    # JS 파일 → predictions.json 동기화 (results 포스팅이 올바른 데이터 읽도록)
+    import re as _re
+    js_path = OUTPUT_DIR / f"predictions_{game_date}.js"
+    if js_path.exists():
+        try:
+            content = js_path.read_text(encoding="utf-8")
+            match = _re.search(r'=\s*(\[.*\])', content, re.DOTALL)
+            if match:
+                import json as _json
+                games_data = _json.loads(match.group(1))
+                pred_path = OUTPUT_DIR / "predictions.json"
+                pred_path.write_text(_json.dumps(games_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                has_result = sum(1 for g in games_data if g.get("actual_winner"))
+                print(f"  ✅ predictions.json 동기화 완료 (결과 있음: {has_result}/{len(games_data)}경기)")
+        except Exception as e:
+            print(f"  ⚠️  predictions.json 동기화 실패: {e}")
 
     # season_results.json 업데이트
     web_repo = BASE_DIR.parent / "mlb-scorecard-web"
@@ -343,7 +360,7 @@ def check_and_post_results(game_date: str):
             capture_output=True, text=True, cwd=str(BASE_DIR)
         )
 
-    # 결과 포스팅 (슬라이드 없이 텍스트 스타일)
+    # 결과 포스팅 (텍스트 스타일)
     run_instagram_post(game_date)
     run_twitter_post(game_date, post_type="results")
 
