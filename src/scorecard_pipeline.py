@@ -46,6 +46,13 @@ def _load_scorecard_config() -> dict:
         return {}
 
 
+def _load_full_config() -> dict:
+    try:
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def _safe(fn, default=None, label=""):
     try:
         return fn()
@@ -79,6 +86,26 @@ def _expected_runs(bat_score: float, opp_def_score: float,
 def run(game_date: Optional[str] = None) -> list:
     if game_date is None:
         game_date = date.today().isoformat()
+
+    full_cfg = _load_full_config()
+    sc_cfg = full_cfg.get("scorecard", {})
+
+    # ── 수요일 보정 설정 로드 ─────────────────────────────────────────────────
+    wed_cfg = full_cfg.get("wednesday_adjustment", {})
+    WED_ENABLED    = bool(wed_cfg.get("enabled", False))
+    WED_HARD_CAP   = float(wed_cfg.get("hard_cap_override", 62.0))
+    WED_BP_PENALTY = float(wed_cfg.get("bp_penalty", 5.0))
+
+    # 오늘이 수요일인지 확인
+    from datetime import date as _date
+    is_wednesday = (_date.fromisoformat(game_date).weekday() == 2)
+    if is_wednesday and WED_ENABLED:
+        print(f"📅 [수요일 보정] 불펜 소진 패널티 활성화 (BP -{WED_BP_PENALTY}pt, Hard Cap → {WED_HARD_CAP}%)")
+
+    # ── 팀 바이어스 보정 설정 로드 ────────────────────────────────────────────
+    bias_cfg = full_cfg.get("team_bias_correction", {})
+    BIAS_ENABLED = bool(bias_cfg.get("enabled", False))
+    TEAM_BIAS    = bias_cfg.get("teams", {}) if BIAS_ENABLED else {}
 
     sc_cfg = _load_scorecard_config()
     HARD_CAP   = float(sc_cfg.get("hard_cap",          67.0))
@@ -312,6 +339,13 @@ def run(game_date: Optional[str] = None) -> list:
 
         away_bp_s = bullpen_score(away_bp_detail)
         home_bp_s = bullpen_score(home_bp_detail)
+
+        # ── 수요일 불펜 소진 패널티 ───────────────────────────────────────
+        if is_wednesday and WED_ENABLED:
+            away_bp_s = max(0.0, away_bp_s - WED_BP_PENALTY)
+            home_bp_s = max(0.0, home_bp_s - WED_BP_PENALTY)
+            print(f"    [수요일패널티] 불펜 각 -{WED_BP_PENALTY}pt 적용 (시리즈 마지막날 소진 리스크)")
+
         print(f"    [불펜] {away_name}: ERA {away_bp_detail['bullpen_era']} → {away_bp_s}점 | {home_name}: ERA {home_bp_detail['bullpen_era']} → {home_bp_s}점")
 
         # ── 3. 타선 분석 ─────────────────────────────────────────────
@@ -497,22 +531,41 @@ def run(game_date: Optional[str] = None) -> list:
             home_win_pct = round(100.0 - away_win_pct, 1)
             print(f"    [TBD 패널티] {home_name} 선발 미정 → {away_name} +4%")
 
+        # ── 7b. 팀 바이어스 보정 ─────────────────────────────────────
+        # 실측 데이터 기반: 특정 팀을 픽할 때 과대/과소평가 보정
+        if TEAM_BIAS:
+            pick_team = home_name if home_win_pct >= away_win_pct else away_name
+            bias = TEAM_BIAS.get(pick_team, 0.0)
+            if bias != 0.0:
+                direction = "하향" if bias < 0 else "상향"
+                if home_win_pct >= away_win_pct:
+                    home_win_pct = max(50.0, min(home_win_pct + bias, HARD_CAP))
+                    away_win_pct = round(100.0 - home_win_pct, 1)
+                else:
+                    away_win_pct = max(50.0, min(away_win_pct + bias, HARD_CAP))
+                    home_win_pct = round(100.0 - away_win_pct, 1)
+                print(f"    [팀바이어스] {pick_team} 픽 {direction} {abs(bias):.0f}% (실측 보정)")
+
         # ── 8. 최종 하드캡 (상대팀 강도 반영 동적 캡) ───────────────
-        # 상대팀 총점이 임계값 이상이면 캡을 낮춤 (양팀 다 강한 경우 과신 방지)
-        opp_strong = (sc["home_total"] >= HARD_CAP_OPP_THRESHOLD or
-                      sc["away_total"] >= HARD_CAP_OPP_THRESHOLD)
-        effective_cap = HARD_CAP_REDUCED if opp_strong else HARD_CAP
+        # 수요일은 별도 낮은 캡 적용
+        if is_wednesday and WED_ENABLED:
+            effective_cap = min(WED_HARD_CAP, HARD_CAP)
+        else:
+            # 상대팀 총점이 임계값 이상이면 캡을 낮춤 (양팀 다 강한 경우 과신 방지)
+            opp_strong = (sc["home_total"] >= HARD_CAP_OPP_THRESHOLD or
+                          sc["away_total"] >= HARD_CAP_OPP_THRESHOLD)
+            effective_cap = HARD_CAP_REDUCED if opp_strong else HARD_CAP
 
         if away_win_pct > effective_cap:
             away_win_pct = effective_cap
             home_win_pct = round(100.0 - away_win_pct, 1)
-            cap_note = f"(상대강팀 {HARD_CAP_REDUCED}%캡)" if opp_strong else ""
-            print(f"    [하드캡] {away_name} {away_win_pct}%로 제한 {cap_note}")
+            cap_label = f"수요일{WED_HARD_CAP}%캡" if (is_wednesday and WED_ENABLED) else (f"상대강팀{HARD_CAP_REDUCED}%캡" if not (is_wednesday and WED_ENABLED) else "")
+            print(f"    [하드캡] {away_name} {away_win_pct}%로 제한 ({cap_label})")
         elif home_win_pct > effective_cap:
             home_win_pct = effective_cap
             away_win_pct = round(100.0 - home_win_pct, 1)
-            cap_note = f"(상대강팀 {HARD_CAP_REDUCED}%캡)" if opp_strong else ""
-            print(f"    [하드캡] {home_name} {home_win_pct}%로 제한 {cap_note}")
+            cap_label = f"수요일{WED_HARD_CAP}%캡" if (is_wednesday and WED_ENABLED) else (f"상대강팀{HARD_CAP_REDUCED}%캡" if not (is_wednesday and WED_ENABLED) else "")
+            print(f"    [하드캡] {home_name} {home_win_pct}%로 제한 ({cap_label})")
 
         # ── 9. 예상 득점 ──────────────────────────────────────────────
         away_def_s = (away_sp_s + away_bp_s) / 2

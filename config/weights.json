@@ -45,5 +45,25 @@
     "sp_era_risk_bat_bonus": 8.0,
     "sp_era_risk_bat_min": 60.0,
     "both_sp_high_era_threshold": 5.0
+  },
+  "wednesday_adjustment": {
+    "enabled": true,
+    "hard_cap_override": 62.0,
+    "bp_penalty": 5.0
+  },
+  "team_bias_correction": {
+    "enabled": true,
+    "teams": {
+      "Cleveland Guardians":   -5.0,
+      "New York Yankees":      -5.0,
+      "Cincinnati Reds":       -4.0,
+      "Colorado Rockies":      -3.0,
+      "New York Mets":         -3.0,
+      "Athletics":             -2.0,
+      "Boston Red Sox":        3.0,
+      "Tampa Bay Rays":        3.0,
+      "Chicago Cubs":          2.0,
+      "Chicago White Sox":     2.0
+    }
   }
 }
