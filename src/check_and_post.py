@@ -242,7 +242,6 @@ def check_and_post_predictions(game_date: str):
         print(f"\n🚀 포스팅 실행! 그룹 {key} | #{post_num}차 | 라인업 확정: {confirmed_count}/{total_count}")
 
         run_pipeline(game_date)
-        run_slides(game_date, post_num)
         run_instagram_post(game_date)
         run_twitter_post(game_date, post_type="prediction")
 
@@ -284,8 +283,7 @@ def check_and_post_results(game_date: str):
             capture_output=True, text=True, cwd=str(BASE_DIR)
         )
 
-    # 결과 슬라이드 생성 + 포스팅
-    run_slides(game_date, post_num=4)
+    # 결과 포스팅 (슬라이드 없이 텍스트 스타일)
     run_instagram_post(game_date)
     run_twitter_post(game_date, post_type="results")
 
