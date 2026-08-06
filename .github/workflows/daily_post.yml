@@ -139,6 +139,14 @@ jobs:
             echo "⚠️  output/predictions.json 없음 — 스킵"
           fi
 
+      - name: 전날 파이프라인 실행 (결과 모드 — 블로그 데이터 준비)
+        if: steps.config.outputs.MODE == 'results'
+        env:
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: |
+          echo "📊 블로그용 ${{ steps.config.outputs.RUN_DATE }} 데이터 생성 중..."
+          python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }} || echo "⚠️ 파이프라인 실패 (계속 진행)"
+
       - name: 블로그 포스트 자동 생성 (결과 모드)
         if: steps.config.outputs.MODE == 'results'
         env:
