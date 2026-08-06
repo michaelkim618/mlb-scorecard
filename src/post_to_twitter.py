@@ -118,10 +118,18 @@ def yesterday_comment(rec: dict) -> str:
 
 def get_top_picks(preds: list, n=5) -> list:
     picks = []
+    skipped_tbd = 0
     for g in preds:
         wp = g.get("win_prob", {})
         if not wp:
             continue
+
+        # SP TBD 경기는 Top Pick에서 제외 (신뢰도 낮음)
+        sp_tbd = g.get("sp_tbd", {})
+        if sp_tbd.get("any", False):
+            skipped_tbd += 1
+            continue
+
         away_pct = wp.get("away", 50)
         home_pct = wp.get("home", 50)
         if home_pct >= away_pct and home_pct >= 55:
@@ -139,7 +147,14 @@ def get_top_picks(preds: list, n=5) -> list:
                 "vs":   f"{abbr(g.get('away','???'))} @ {abbr(g.get('home','???'))}",
             })
     picks.sort(key=lambda x: x["pct"], reverse=True)
-    return picks[:n]
+    result = picks[:n]
+    # skipped_tbd 정보를 첫 번째 pick에 메타데이터로 붙여서 전달
+    if result and skipped_tbd > 0:
+        result[0]["skipped_tbd"] = skipped_tbd
+    elif skipped_tbd > 0:
+        # 픽이 없는데 TBD만 있는 경우
+        return [{"skipped_tbd": skipped_tbd}]
+    return result
 
 def format_date_label(post_date: str) -> str:
     dt = datetime.strptime(post_date, "%Y-%m-%d")
@@ -161,20 +176,25 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
             "#MLB #MLBPicks #Baseball"
         )
 
+    skipped_tbd = top_picks[0].get("skipped_tbd", 0) if top_picks else 0
+    real_picks = [p for p in top_picks if "vs" in p]
+
     lines = []
-    for i, p in enumerate(top_picks):
+    for i, p in enumerate(real_picks):
         star = "⭐" if i == 0 else "✅"
         lines.append(f"{star} {p['vs']} → {p['pick']} {p['pct']:.0f}%")
     picks_block = "\n".join(lines)
 
+    tbd_note = f"⚠️ {skipped_tbd}G SP미정 제외\n" if skipped_tbd > 0 else ""
     yday_line = f"\n{yesterday_comment(rec)}\n" if rec else ""
 
     tweet = (
         f"⚾ MLB Picks | {date_label}\n"
         f"{yday_line}\n"
         f"{picks_block}\n\n"
+        f"{tbd_note}"
         f"{total} games tracked. No cherry-picking, ever.\n\n"
-        f"#MLB #MLBPicks #{top_picks[0]['pick']}"
+        f"#MLB #MLBPicks #{real_picks[0]['pick'] if real_picks else 'Baseball'}"
     )
     return tweet
 

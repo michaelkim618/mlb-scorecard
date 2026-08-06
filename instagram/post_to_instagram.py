@@ -116,10 +116,18 @@ def yesterday_block(rec: dict) -> str:
 
 def get_top_picks(preds: list, n=5) -> list:
     picks = []
+    skipped_tbd = 0
     for g in preds:
         wp = g.get("win_prob", {})
         if not wp:
             continue
+
+        # SP TBD 경기는 Top Pick에서 제외 (신뢰도 낮음)
+        sp_tbd = g.get("sp_tbd", {})
+        if sp_tbd.get("any", False):
+            skipped_tbd += 1
+            continue
+
         away_pct = wp.get("away", 50)
         home_pct = wp.get("home", 50)
         if home_pct >= away_pct and home_pct >= 55:
@@ -137,7 +145,12 @@ def get_top_picks(preds: list, n=5) -> list:
                 "vs":   f"{abbr(g.get('away','???'))} @ {abbr(g.get('home','???'))}",
             })
     picks.sort(key=lambda x: x["pct"], reverse=True)
-    return picks[:n]
+    result = picks[:n]
+    if result and skipped_tbd > 0:
+        result[0]["skipped_tbd"] = skipped_tbd
+    elif skipped_tbd > 0:
+        return [{"skipped_tbd": skipped_tbd}]
+    return result
 
 def format_date_label(post_date: str) -> str:
     dt = datetime.strptime(post_date, "%Y-%m-%d")
@@ -160,22 +173,28 @@ def build_prediction_caption(post_date: str, preds: list) -> str:
             "#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball"
         )
 
+    skipped_tbd = top_picks[0].get("skipped_tbd", 0) if top_picks else 0
+    real_picks = [p for p in top_picks if "vs" in p]
+
     lines = []
-    for i, p in enumerate(top_picks):
+    for i, p in enumerate(real_picks):
         star = "⭐" if i == 0 else "✅"
         lines.append(f"{star} {p['vs']} → {p['pick']} {p['pct']:.0f}%")
     picks_block = "\n".join(lines)
+
+    tbd_note = f"\n⚠️ {skipped_tbd}개 경기 선발 미정 — 확정 후 신뢰도 상승 예정" if skipped_tbd > 0 else ""
+    top_tag = real_picks[0]['pick'] if real_picks else 'Baseball'
 
     caption = (
         f"⚾ MLB Picks | {date_label}\n"
         f"{yday}\n"
         f"🎯 Today's Top Picks ({total} games):\n"
-        f"{picks_block}\n\n"
+        f"{picks_block}"
+        f"{tbd_note}\n\n"
         "Every pick posted before first pitch. Every result tracked.\n"
         "No edits. No excuses. Just data.\n\n"
         f"🔗 Full scorecard → mlb-scorecard.com\n\n"
-        "#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball "
-        f"#{top_picks[0]['pick']}"
+        f"#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball #{top_tag}"
     )
     return caption
 

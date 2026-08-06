@@ -718,6 +718,12 @@ def run(game_date: Optional[str] = None) -> list:
                 "home": g.get("actual_home"),
             },
             "lineup_confirmed": bat_source == "lineup",
+            "sp_tbd": {
+                "away": away_is_tbd,
+                "home": home_is_tbd,
+                "both": away_is_tbd and home_is_tbd,
+                "any":  away_is_tbd or home_is_tbd,
+            },
             "actual_winner":  actual_winner,
             "model_winner":   model_winner,
             "model_correct":  model_correct,
