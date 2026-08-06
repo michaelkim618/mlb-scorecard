@@ -65,6 +65,57 @@ def load_predictions() -> list:
             return json.load(f)
     return []
 
+
+def load_yesterday_record(today: str):
+    """season_results.json에서 전날 W-L 성적 계산"""
+    # 웹 레포 위치 탐색
+    web_candidates = [
+        BASE_DIR / "mlb-scorecard-web",           # GitHub Actions
+        BASE_DIR.parent / "mlb-scorecard-web",    # 로컬 (같은 레벨)
+        Path.home() / "Desktop" / "mlb-scorecard-web",  # 로컬 Desktop
+    ]
+    results_file = None
+    for w in web_candidates:
+        f = w / "public" / "season_results.json"
+        if f.exists():
+            results_file = f
+            break
+
+    if not results_file:
+        return None
+
+    try:
+        data = json.loads(results_file.read_text(encoding="utf-8"))
+        games = data.get("games", [])
+    except Exception:
+        return None
+
+    from datetime import datetime, timedelta
+    yesterday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    day_games = [g for g in games if g.get("date") == yesterday and "actual_winner" in g]
+
+    if not day_games:
+        return None
+
+    wins = sum(1 for g in day_games if g.get("correct"))
+    total = len(day_games)
+    pct = wins / total * 100
+    return {"wins": wins, "losses": total - wins, "total": total, "pct": pct, "date": yesterday}
+
+
+def yesterday_comment(rec: dict) -> str:
+    """성적에 따른 코멘트 (트위터용 — 짧고 임팩트 있게)"""
+    pct = rec["pct"]
+    w, l = rec["wins"], rec["losses"]
+    if pct >= 70:
+        return f"🔥 Yesterday: {w}-{l} ({pct:.0f}%) — AWESOME night!"
+    elif pct >= 60:
+        return f"✅ Yesterday: {w}-{l} ({pct:.0f}%) — solid call!"
+    elif pct >= 50:
+        return f"📈 Yesterday: {w}-{l} ({pct:.0f}%) — we'll be back stronger."
+    else:
+        return f"😤 Yesterday: {w}-{l} ({pct:.0f}%) — rough one. Bounce back time."
+
 def get_top_picks(preds: list, n=5) -> list:
     picks = []
     for g in preds:
@@ -98,12 +149,15 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
     date_label = format_date_label(post_date)
     top_picks = get_top_picks(preds, n=5)
     total = len(preds)
+    rec = load_yesterday_record(post_date)
 
     if not top_picks:
+        yday = f"\n{yesterday_comment(rec)}\n" if rec else ""
         return (
-            f"⚾ MLB Picks | {date_label}\n\n"
-            f"Analyzing {total} games today — lineup data loading.\n"
-            "Final picks posted at game time.\n\n"
+            f"⚾ MLB Picks | {date_label}\n"
+            f"{yday}\n"
+            f"Analyzing {total} games — lineup data loading.\n"
+            "Final picks dropped at game time.\n\n"
             "#MLB #MLBPicks #Baseball"
         )
 
@@ -111,13 +165,15 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
     for i, p in enumerate(top_picks):
         star = "⭐" if i == 0 else "✅"
         lines.append(f"{star} {p['vs']} → {p['pick']} {p['pct']:.0f}%")
-
     picks_block = "\n".join(lines)
 
+    yday_line = f"\n{yesterday_comment(rec)}\n" if rec else ""
+
     tweet = (
-        f"⚾ MLB Picks | {date_label}\n\n"
+        f"⚾ MLB Picks | {date_label}\n"
+        f"{yday_line}\n"
         f"{picks_block}\n\n"
-        f"{total} games tracked. Every pick public.\n\n"
+        f"{total} games tracked. No cherry-picking, ever.\n\n"
         f"#MLB #MLBPicks #{top_picks[0]['pick']}"
     )
     return tweet
@@ -150,6 +206,16 @@ def build_results_tweet(post_date: str, preds: list) -> str:
     total = len(finished)
     pct = correct / total * 100
 
+    # 성적 코멘트
+    if pct >= 70:
+        verdict = f"🔥 {correct}W-{total-correct}L ({pct:.0f}%) — AWESOME night! The data delivered."
+    elif pct >= 60:
+        verdict = f"✅ {correct}W-{total-correct}L ({pct:.0f}%) — solid night. We'll take it."
+    elif pct >= 50:
+        verdict = f"📈 {correct}W-{total-correct}L ({pct:.0f}%) — close, but we can do better."
+    else:
+        verdict = f"😤 {correct}W-{total-correct}L ({pct:.0f}%) — rough one. Back tomorrow."
+
     top5 = result_lines[:5]
     summary_block = "\n".join(top5)
     if len(result_lines) > 5:
@@ -157,8 +223,9 @@ def build_results_tweet(post_date: str, preds: list) -> str:
 
     tweet = (
         f"📊 MLB Results | {date_label}\n\n"
-        f"{correct}W-{total-correct}L ({pct:.0f}%)\n\n"
+        f"{verdict}\n\n"
         f"{summary_block}\n\n"
+        "All picks tracked from day 1. No edits. No excuses.\n"
         "#MLB #MLBPicks #Baseball"
     )
     return tweet

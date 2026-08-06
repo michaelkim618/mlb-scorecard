@@ -55,6 +55,65 @@ def load_predictions() -> list:
             return json.load(f)
     return []
 
+
+def load_yesterday_record(today: str):
+    """season_results.json에서 전날 W-L 성적 계산"""
+    web_candidates = [
+        BASE_DIR / "mlb-scorecard-web",           # GitHub Actions
+        BASE_DIR.parent / "mlb-scorecard-web",    # 로컬 (같은 레벨)
+        Path.home() / "Desktop" / "mlb-scorecard-web",  # 로컬 Desktop
+    ]
+    results_file = None
+    for w in web_candidates:
+        f = w / "public" / "season_results.json"
+        if f.exists():
+            results_file = f
+            break
+
+    if not results_file:
+        return None
+
+    try:
+        data = json.loads(results_file.read_text(encoding="utf-8"))
+        games = data.get("games", [])
+    except Exception:
+        return None
+
+    from datetime import timedelta
+    yesterday = (datetime.strptime(today, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    day_games = [g for g in games if g.get("date") == yesterday and "actual_winner" in g]
+
+    if not day_games:
+        return None
+
+    wins = sum(1 for g in day_games if g.get("correct"))
+    total = len(day_games)
+    pct = wins / total * 100
+    return {"wins": wins, "losses": total - wins, "total": total, "pct": pct, "date": yesterday}
+
+
+def yesterday_block(rec: dict) -> str:
+    """전날 성적 블록 (인스타용 — 감성 코멘트 포함)"""
+    pct = rec["pct"]
+    w, l = rec["wins"], rec["losses"]
+    from datetime import datetime
+    date_label = datetime.strptime(rec["date"], "%Y-%m-%d").strftime("%b %-d").upper()
+
+    if pct >= 70:
+        comment = f"🔥 {w}W-{l}L ({pct:.0f}%) — AWESOME. The model was on fire!"
+        sub = "Nights like this remind us why we trust the data."
+    elif pct >= 60:
+        comment = f"✅ {w}W-{l}L ({pct:.0f}%) — Solid night."
+        sub = "Consistent. Data-driven. No guessing."
+    elif pct >= 50:
+        comment = f"📈 {w}W-{l}L ({pct:.0f}%) — Decent, but we can do better."
+        sub = "We track every pick honestly. No cherry-picking."
+    else:
+        comment = f"😤 {w}W-{l}L ({pct:.0f}%) — Rough one yesterday."
+        sub = "It happens. Every pick tracked. We come back stronger."
+
+    return f"📊 Yesterday ({date_label}): {comment}\n{sub}"
+
 def get_top_picks(preds: list, n=5) -> list:
     picks = []
     for g in preds:
@@ -88,12 +147,16 @@ def build_prediction_caption(post_date: str, preds: list) -> str:
     date_label = format_date_label(post_date)
     top_picks = get_top_picks(preds, n=5)
     total = len(preds)
+    rec = load_yesterday_record(post_date)
+
+    yday = f"\n{yesterday_block(rec)}\n" if rec else ""
 
     if not top_picks:
         return (
-            f"⚾ MLB Picks | {date_label}\n\n"
+            f"⚾ MLB Picks | {date_label}\n"
+            f"{yday}\n"
             f"Analyzing {total} games today.\n"
-            "Lineup data still loading — check back closer to first pitch.\n\n"
+            "Lineup data still loading — picks dropped at game time.\n\n"
             "#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball"
         )
 
@@ -101,13 +164,16 @@ def build_prediction_caption(post_date: str, preds: list) -> str:
     for i, p in enumerate(top_picks):
         star = "⭐" if i == 0 else "✅"
         lines.append(f"{star} {p['vs']} → {p['pick']} {p['pct']:.0f}%")
-
     picks_block = "\n".join(lines)
 
     caption = (
-        f"⚾ MLB Picks | {date_label}\n\n"
+        f"⚾ MLB Picks | {date_label}\n"
+        f"{yday}\n"
+        f"🎯 Today's Top Picks ({total} games):\n"
         f"{picks_block}\n\n"
-        f"Analyzing {total} games today. Every pick tracked publicly — no cherry-picking.\n\n"
+        "Every pick posted before first pitch. Every result tracked.\n"
+        "No edits. No excuses. Just data.\n\n"
+        f"🔗 Full scorecard → mlb-scorecard.com\n\n"
         "#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball "
         f"#{top_picks[0]['pick']}"
     )
@@ -141,6 +207,20 @@ def build_results_caption(post_date: str, preds: list) -> str:
     total = len(finished)
     pct = correct / total * 100
 
+    # 성적 코멘트
+    if pct >= 70:
+        verdict = f"🔥 {correct}W-{total-correct}L ({pct:.0f}%) — AMAZING night!"
+        sub = "The data was firing on all cylinders. This is why we trust the model."
+    elif pct >= 60:
+        verdict = f"✅ {correct}W-{total-correct}L ({pct:.0f}%) — Solid night."
+        sub = "Consistent picks, honest tracking. No smoke and mirrors."
+    elif pct >= 50:
+        verdict = f"📈 {correct}W-{total-correct}L ({pct:.0f}%) — Not bad, but we want more."
+        sub = "We track everything publicly — good days and tough days alike."
+    else:
+        verdict = f"😤 {correct}W-{total-correct}L ({pct:.0f}%) — Rough one."
+        sub = "Baseball is humbling. We own it and come back stronger tomorrow."
+
     top5 = result_lines[:5]
     summary_block = "\n".join(top5)
     if len(result_lines) > 5:
@@ -148,9 +228,11 @@ def build_results_caption(post_date: str, preds: list) -> str:
 
     caption = (
         f"📊 MLB Results | {date_label}\n\n"
-        f"{correct}W — {total-correct}L ({pct:.0f}%)\n\n"
+        f"{verdict}\n{sub}\n\n"
         f"{summary_block}\n\n"
-        "All picks tracked from the start. No edits. No excuses.\n\n"
+        "All picks posted before first pitch. All results tracked.\n"
+        "No edits. No excuses. Just data.\n\n"
+        f"🔗 Full history → mlb-scorecard.com\n\n"
         "#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball"
     )
     return caption
