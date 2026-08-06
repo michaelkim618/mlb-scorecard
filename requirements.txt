@@ -4,3 +4,4 @@ Pillow
 python-dateutil
 pytz
 playwright
+anthropic
