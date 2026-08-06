@@ -100,22 +100,24 @@ jobs:
             python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }}
           fi
 
-      - name: 웹 레포 업데이트 (결과 포스팅 후)
-        if: steps.config.outputs.MODE == 'results'
+      - name: 웹 레포 체크아웃 (항상)
         uses: actions/checkout@v4
         with:
           repository: michaelkim618/mlb-scorecard-web
           token: ${{ secrets.WEB_REPO_PAT }}
           path: mlb-scorecard-web
 
-      - name: season_results.json & predictions.json & news.json 업데이트
+      - name: news.json 업데이트 (항상)
+        run: |
+          python src/fetch_news.py mlb-scorecard-web
+
+      - name: season_results.json & predictions.json 업데이트 (결과 모드)
         if: steps.config.outputs.MODE == 'results'
         run: |
           python src/update_season_results.py mlb-scorecard-web
-          python src/fetch_news.py mlb-scorecard-web
           cp output/predictions.json mlb-scorecard-web/public/predictions.json
 
-      - name: 블로그 포스트 자동 생성
+      - name: 블로그 포스트 자동 생성 (결과 모드)
         if: steps.config.outputs.MODE == 'results'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -123,12 +125,11 @@ jobs:
         run: |
           python src/generate_blog_post.py --date ${{ steps.config.outputs.RUN_DATE }} --web-repo mlb-scorecard-web || echo "블로그 생성 실패 (계속 진행)"
 
-      - name: 웹 레포 커밋 & 푸시
-        if: steps.config.outputs.MODE == 'results'
+      - name: 웹 레포 커밋 & 푸시 (항상)
         working-directory: mlb-scorecard-web
         run: |
           git config user.name "MLB Scorecard Bot"
           git config user.email "bot@mlb-scorecard.com"
-          git add public/season_results.json public/predictions.json public/news.json public/blog/
-          git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} results + blog"
+          git add public/news.json public/season_results.json public/predictions.json public/blog/
+          git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }})"
           git push
