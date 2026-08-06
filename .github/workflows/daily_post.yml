@@ -54,6 +54,10 @@ on:
         required: false
         default: 'prediction'
 
+concurrency:
+  group: mlb-daily-post
+  cancel-in-progress: false   # 실행 중인 잡을 취소하지 않고 새 잡이 기다림
+
 jobs:
   check_and_post:
     runs-on: ubuntu-latest
