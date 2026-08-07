@@ -80,13 +80,10 @@ jobs:
       - name: 날짜 & 모드 설정
         id: config
         run: |
-          # PST 기준 날짜
-          TZ='America/Los_Angeles'
           PST_HOUR=$(TZ='America/Los_Angeles' date +%H)
           PST_DATE=$(TZ='America/Los_Angeles' date +%Y-%m-%d)
           YESTERDAY=$(TZ='America/Los_Angeles' date -d "yesterday" +%Y-%m-%d 2>/dev/null || TZ='America/Los_Angeles' date -v-1d +%Y-%m-%d)
 
-          # 수동 실행이면 입력값 사용
           if [ -n "${{ github.event.inputs.date }}" ]; then
             RUN_DATE="${{ github.event.inputs.date }}"
           else
@@ -96,10 +93,8 @@ jobs:
           if [ -n "${{ github.event.inputs.mode }}" ]; then
             MODE="${{ github.event.inputs.mode }}"
           elif [ "$PST_HOUR" = "00" ]; then
-            # 자정 00:01 = 당일 예측 초기화 (홈페이지 업데이트만, SNS 포스팅 없음)
             MODE="daily_init"
           elif [ "$PST_HOUR" = "06" ]; then
-            # 오전 6시 = 결과 포스팅 (전날 결과)
             MODE="results"
             RUN_DATE="$YESTERDAY"
           else
@@ -110,6 +105,15 @@ jobs:
           echo "MODE=$MODE" >> $GITHUB_OUTPUT
           echo "✅ 날짜: $RUN_DATE | 모드: $MODE | PST시각: $PST_HOUR시"
 
+      # ── 웹 레포 체크아웃 (앞으로 이동 — predictions.json 복원 & 커밋 모두 여기서) ──
+      - name: 웹 레포 체크아웃 (항상)
+        uses: actions/checkout@v4
+        with:
+          repository: michaelkim618/mlb-scorecard-web
+          token: ${{ secrets.WEB_REPO_PAT }}
+          path: mlb-scorecard-web
+
+      # ── daily_init: 당일 예측 초기화 ──
       - name: 당일 예측 초기화 (daily_init — 00:01 PST, 홈페이지만 업데이트)
         if: steps.config.outputs.MODE == 'daily_init'
         env:
@@ -118,6 +122,28 @@ jobs:
           echo "🌙 00:01 PST — 당일 경기 예측 초기화 시작 (${{ steps.config.outputs.RUN_DATE }})"
           python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }}
           echo "✅ 예측 완료 — SNS 포스팅 없음, 홈페이지만 업데이트"
+
+      # ── prediction / results 모드: 포스팅 ──
+
+      - name: 포스팅 상태 복원 (캐시에서 — 중복 포스팅 방지)
+        if: steps.config.outputs.MODE != 'daily_init'
+        uses: actions/cache@v4
+        with:
+          path: output/post_state
+          key: post-state-${{ steps.config.outputs.RUN_DATE }}
+          restore-keys: |
+            post-state-${{ steps.config.outputs.RUN_DATE }}
+
+      - name: predictions.json 복원 (웹 레포에서)
+        if: steps.config.outputs.MODE != 'daily_init'
+        run: |
+          mkdir -p output
+          if [ -f mlb-scorecard-web/public/predictions.json ]; then
+            cp mlb-scorecard-web/public/predictions.json output/predictions.json
+            echo "✅ predictions.json 복원 완료"
+          else
+            echo "⚠️  predictions.json 없음 — 파이프라인으로 새로 생성 예정"
+          fi
 
       - name: 스마트 포스팅 체크 & 실행 (prediction / results 모드)
         if: steps.config.outputs.MODE != 'daily_init'
@@ -136,12 +162,14 @@ jobs:
             python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }}
           fi
 
-      - name: 웹 레포 체크아웃 (항상)
-        uses: actions/checkout@v4
+      - name: 포스팅 상태 저장 (캐시로 — 다음 실행 때 복원)
+        if: steps.config.outputs.MODE != 'daily_init'
+        uses: actions/cache/save@v4
         with:
-          repository: michaelkim618/mlb-scorecard-web
-          token: ${{ secrets.WEB_REPO_PAT }}
-          path: mlb-scorecard-web
+          path: output/post_state
+          key: post-state-${{ steps.config.outputs.RUN_DATE }}
+
+      # ── 웹 데이터 업데이트 (항상) ──
 
       - name: news.json 업데이트 (항상)
         run: |
