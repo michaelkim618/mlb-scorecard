@@ -125,19 +125,21 @@ jobs:
 
       # ── prediction / results 모드: 포스팅 ──
 
-      - name: 포스팅 상태 복원 (캐시에서 — 중복 포스팅 방지)
-        if: steps.config.outputs.MODE != 'daily_init'
-        uses: actions/cache@v4
-        with:
-          path: output/post_state
-          key: post-state-${{ steps.config.outputs.RUN_DATE }}
-          restore-keys: |
-            post-state-${{ steps.config.outputs.RUN_DATE }}
-
-      - name: predictions.json 복원 (웹 레포에서)
+      - name: 포스팅 상태 & predictions.json 복원 (웹 레포 git — 신뢰성 보장)
         if: steps.config.outputs.MODE != 'daily_init'
         run: |
-          mkdir -p output
+          mkdir -p output/post_state
+
+          # ① post_state: 웹 레포 git에서 복원 (캐시보다 신뢰성 높음)
+          STATE_FILE="mlb-scorecard-web/public/post_state_${{ steps.config.outputs.RUN_DATE }}.json"
+          if [ -f "$STATE_FILE" ]; then
+            cp "$STATE_FILE" "output/post_state/posted_${{ steps.config.outputs.RUN_DATE }}.json"
+            echo "✅ post_state 복원 완료 (웹 레포에서)"
+          else
+            echo "ℹ️  post_state 없음 (첫 실행)"
+          fi
+
+          # ② predictions.json 복원
           if [ -f mlb-scorecard-web/public/predictions.json ]; then
             cp mlb-scorecard-web/public/predictions.json output/predictions.json
             echo "✅ predictions.json 복원 완료"
@@ -162,12 +164,17 @@ jobs:
             python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }}
           fi
 
-      - name: 포스팅 상태 저장 (캐시로 — 다음 실행 때 복원)
+      - name: 포스팅 상태 저장 (웹 레포 git — 중복 포스팅 방지)
         if: steps.config.outputs.MODE != 'daily_init'
-        uses: actions/cache/save@v4
-        with:
-          path: output/post_state
-          key: post-state-${{ steps.config.outputs.RUN_DATE }}
+        run: |
+          STATE_SRC="output/post_state/posted_${{ steps.config.outputs.RUN_DATE }}.json"
+          STATE_DST="mlb-scorecard-web/public/post_state_${{ steps.config.outputs.RUN_DATE }}.json"
+          if [ -f "$STATE_SRC" ]; then
+            cp "$STATE_SRC" "$STATE_DST"
+            echo "✅ post_state → 웹 레포 저장 완료"
+          else
+            echo "ℹ️  post_state 파일 없음 (포스팅 없었음)"
+          fi
 
       # ── 웹 데이터 업데이트 (항상) ──
 
@@ -210,6 +217,10 @@ jobs:
         run: |
           git config user.name "MLB Scorecard Bot"
           git config user.email "bot@mlb-scorecard.com"
-          git add public/news.json public/season_results.json public/predictions.json public/blog/
+
+          # 7일 이상 된 post_state 파일 정리
+          find public -name "post_state_*.json" -mtime +7 -delete 2>/dev/null || true
+
+          git add public/news.json public/season_results.json public/predictions.json public/blog/ public/post_state_*.json || true
           git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }})"
-          git push
+          git pull --rebase && git push
