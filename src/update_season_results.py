@@ -57,7 +57,7 @@ def game_key(g: dict) -> str:
     return f"{g['date']}|{g['away']}|{g['home']}"
 
 
-def build_game_entry(g: dict, date_str: str) -> dict | None:
+def build_game_entry(g, date_str):
     """predictions JS 게임 → season_results 엔트리 변환"""
     if g.get("model_correct") is None:
         return None  # 아직 결과 없음
@@ -69,18 +69,18 @@ def build_game_entry(g: dict, date_str: str) -> dict | None:
     else:
         away_pct = home_pct = 50
 
-    pick = g.get("model_winner") or (g["home"] if home_pct >= away_pct else g["away"])
-    hc   = g.get("consensus") or g.get("value_bet")
+    pick      = g.get("model_winner") or (g["home"] if home_pct >= away_pct else g["away"])
+    pick_prob = round(max(away_pct, home_pct), 1)
 
     return {
         "date":          date_str,
         "away":          g.get("away", ""),
         "home":          g.get("home", ""),
         "pick":          pick,
-        "pick_prob":     round(max(away_pct, home_pct), 1),
+        "pick_prob":     pick_prob,
         "actual_winner": g.get("actual_winner", ""),
         "correct":       bool(g.get("model_correct")),
-        "high_conf":     bool(hc) if isinstance(hc, bool) else False,
+        "high_conf":     pick_prob >= 65.0,   # Premium Pick 기준: 65%+
     }
 
 
