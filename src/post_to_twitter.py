@@ -108,13 +108,13 @@ def yesterday_comment(rec: dict) -> str:
     pct = rec["pct"]
     w, l = rec["wins"], rec["losses"]
     if pct >= 70:
-        return f"🔥 Yesterday: {w}-{l} ({pct:.0f}%) — AWESOME night!"
+        return f"🔥 Yesterday: {w} Won - {l} Lost ({pct:.0f}% Accuracy) — AWESOME night!"
     elif pct >= 60:
-        return f"✅ Yesterday: {w}-{l} ({pct:.0f}%) — solid call!"
+        return f"✅ Yesterday: {w} Won - {l} Lost ({pct:.0f}% Accuracy) — solid call!"
     elif pct >= 50:
-        return f"📈 Yesterday: {w}-{l} ({pct:.0f}%) — we'll be back stronger."
+        return f"📈 Yesterday: {w} Won - {l} Lost ({pct:.0f}% Accuracy) — we'll be back stronger."
     else:
-        return f"😤 Yesterday: {w}-{l} ({pct:.0f}%) — rough one. Bounce back time."
+        return f"😤 Yesterday: {w} Won - {l} Lost ({pct:.0f}% Accuracy) — rough one. Bounce back time."
 
 def get_top_picks(preds: list, n=5) -> list:
     picks = []
@@ -191,16 +191,19 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
         lines.append(f"{star} {p['vs']} → {p['pick']} {p['pct']:.0f}%")
     picks_block = "\n".join(lines)
 
-    tbd_note = f"⚠️ {skipped_tbd}G SP미정 제외\n" if skipped_tbd > 0 else ""
+    tbd_note = f"⚠️ {skipped_tbd} games excluded (SP not yet announced)\n" if skipped_tbd > 0 else ""
     yday_line = f"\n{yesterday_comment(rec)}\n" if rec else ""
+    top_tag = f"#{real_picks[0]['pick'].replace(' ', '')}" if real_picks else "#Baseball"
 
     tweet = (
         f"⚾ MLB Picks | {date_label}\n"
         f"{yday_line}\n"
+        f"Today's Top Picks:\n"
         f"{picks_block}\n\n"
         f"{tbd_note}"
         f"{total} games tracked. No cherry-picking, ever.\n\n"
-        f"#MLB #MLBPicks #{real_picks[0]['pick'] if real_picks else 'Baseball'}"
+        f"📊 Full analysis & all picks → mlb-scorecard.com\n\n"
+        f"#MLB #MLBPicks {top_tag}"
     )
     return tweet
 
@@ -234,13 +237,13 @@ def build_results_tweet(post_date: str, preds: list) -> str:
 
     # 성적 코멘트
     if pct >= 70:
-        verdict = f"🔥 {correct}W-{total-correct}L ({pct:.0f}%) — AWESOME night! The data delivered."
+        verdict = f"🔥 {correct} Won - {total-correct} Lost ({pct:.0f}% Accuracy) — AWESOME night! The data delivered."
     elif pct >= 60:
-        verdict = f"✅ {correct}W-{total-correct}L ({pct:.0f}%) — solid night. We'll take it."
+        verdict = f"✅ {correct} Won - {total-correct} Lost ({pct:.0f}% Accuracy) — solid night. We'll take it."
     elif pct >= 50:
-        verdict = f"📈 {correct}W-{total-correct}L ({pct:.0f}%) — close, but we can do better."
+        verdict = f"📈 {correct} Won - {total-correct} Lost ({pct:.0f}% Accuracy) — close, but we can do better."
     else:
-        verdict = f"😤 {correct}W-{total-correct}L ({pct:.0f}%) — rough one. Back tomorrow."
+        verdict = f"😤 {correct} Won - {total-correct} Lost ({pct:.0f}% Accuracy) — rough one. Back tomorrow."
 
     top5 = result_lines[:5]
     summary_block = "\n".join(top5)
@@ -251,7 +254,8 @@ def build_results_tweet(post_date: str, preds: list) -> str:
         f"📊 MLB Results | {date_label}\n\n"
         f"{verdict}\n\n"
         f"{summary_block}\n\n"
-        "All picks tracked from day 1. No edits. No excuses.\n"
+        f"All picks tracked from day 1. No edits. No excuses.\n\n"
+        f"📊 Full season record → mlb-scorecard.com\n\n"
         "#MLB #MLBPicks #Baseball"
     )
     return tweet
