@@ -546,6 +546,30 @@ def run(game_date: Optional[str] = None) -> list:
                     home_win_pct = round(100.0 - away_win_pct, 1)
                 print(f"    [팀바이어스] {pick_team} 픽 {direction} {abs(bias):.0f}% (실측 보정)")
 
+        # ── 7c. SP 과신 보정 (SP 점수 차이 +30 이상 시 불펜/타선 역전 가능성 반영) ──
+        # 실측 데이터 기반: SP 차이가 압도적일수록 모델이 과신하는 경향 (56% 적중)
+        # 조건: SP 우위팀이 모델이 예측하는 팀이어야 함 + 불펜/타선은 상대가 우세한 경우만
+        SP_OVERCONF_THRESHOLD = 30.0   # SP 점수 차이 임계값
+        SP_OVERCONF_PENALTY   = 3.0    # 보정값 (%p 하향)
+
+        sp_diff = home_sp_s - away_sp_s  # 양수 = 홈SP 우세, 음수 = 어웨이SP 우세
+        home_bp_bat = (home_bp_s + home_bat_s) / 2
+        away_bp_bat = (away_bp_s + away_bat_s) / 2
+
+        if abs(sp_diff) >= SP_OVERCONF_THRESHOLD:
+            if sp_diff > 0 and home_win_pct >= away_win_pct:
+                # 홈 SP 압도적 + 모델도 홈 예측 + 홈 불펜/타선은 어웨이보다 열세
+                if home_bp_bat < away_bp_bat:
+                    home_win_pct = max(50.0, home_win_pct - SP_OVERCONF_PENALTY)
+                    away_win_pct = round(100.0 - home_win_pct, 1)
+                    print(f"    [SP과신보정] 홈SP 압도적 우세(+{sp_diff:.0f}pt)지만 불펜/타선 열세 → 홈 -{SP_OVERCONF_PENALTY}% 보정")
+            elif sp_diff < 0 and away_win_pct >= home_win_pct:
+                # 어웨이 SP 압도적 + 모델도 어웨이 예측 + 어웨이 불펜/타선은 홈보다 열세
+                if away_bp_bat < home_bp_bat:
+                    away_win_pct = max(50.0, away_win_pct - SP_OVERCONF_PENALTY)
+                    home_win_pct = round(100.0 - away_win_pct, 1)
+                    print(f"    [SP과신보정] 어웨이SP 압도적 우세({sp_diff:.0f}pt)지만 불펜/타선 열세 → 어웨이 -{SP_OVERCONF_PENALTY}% 보정")
+
         # ── 8. 최종 하드캡 (상대팀 강도 반영 동적 캡) ───────────────
         # 수요일은 별도 낮은 캡 적용
         if is_wednesday and WED_ENABLED:

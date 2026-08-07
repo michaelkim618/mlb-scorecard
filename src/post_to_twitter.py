@@ -130,6 +130,12 @@ def get_top_picks(preds: list, n=5) -> list:
             skipped_tbd += 1
             continue
 
+        # bat_source=team_stats 경기는 Top Pick에서 제외 (라인업 없어 신뢰도 40%)
+        bat_source = g.get("scorecard", {}).get("bat_source", "")
+        if bat_source == "team_stats":
+            skipped_tbd += 1
+            continue
+
         away_pct = wp.get("away", 50)
         home_pct = wp.get("home", 50)
         if home_pct >= away_pct and home_pct >= 55:
