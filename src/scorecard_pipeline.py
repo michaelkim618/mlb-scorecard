@@ -729,6 +729,7 @@ def run(game_date: Optional[str] = None) -> list:
         results.append({
             "date":         game_date,
             "status":       g.get("status", ""),
+            "game_time":    g.get("game_time", ""),
             "away":         away_name,
             "home":         home_name,
             "away_standing":   _team_standing(away_id),

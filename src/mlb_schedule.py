@@ -2,8 +2,20 @@
 MLB 일정 조회: statsapi.mlb.com
 """
 import requests
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional, List, Dict
+
+# 미국 서부 시간 (PDT = UTC-7 / PST = UTC-8, 여름엔 PDT)
+_PDT = timezone(timedelta(hours=-7))
+
+def _to_pt_str(game_date_utc: str) -> str:
+    """'2026-08-07T22:40:00Z' → '3:40 PM PT'"""
+    try:
+        dt_utc = datetime.strptime(game_date_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        dt_pt  = dt_utc.astimezone(_PDT)
+        return dt_pt.strftime("%-I:%M %p PT")
+    except Exception:
+        return ""
 
 
 BASE = "https://statsapi.mlb.com/api/v1"
@@ -82,9 +94,12 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
                 home_pitcher = {"fullName": name, "id": pid}
                 print(f"  [오버라이드] {home['team']['name']} 선발: {name}")
 
+            game_time_pt = _to_pt_str(g.get("gameDate", ""))
+
             games.append({
                 "gamePk":          g["gamePk"],
                 "gameDate":        g.get("officialDate", game_date),
+                "game_time":       game_time_pt,
                 "status":          status_state,
                 "away_id":         away_id,
                 "away_name":       away["team"]["name"],
