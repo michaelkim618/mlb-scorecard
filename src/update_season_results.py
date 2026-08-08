@@ -84,6 +84,20 @@ def build_game_entry(g, date_str):
     }
 
 
+def load_predictions_json() -> list:
+    """웹 레포의 predictions.json 에서 오늘 경기 데이터 로드 (GitHub Actions용)"""
+    pred_file = WEB_REPO / "public" / "predictions.json"
+    if not pred_file.exists():
+        return []
+    try:
+        data = json.loads(pred_file.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception as e:
+        print(f"⚠️ predictions.json 로드 실패: {e}")
+    return []
+
+
 def update():
     existing = load_season_results()
 
@@ -103,6 +117,7 @@ def update():
     # output 폴더에서 시즌 시작일 이후 파일 스캔
     start = date.fromisoformat(existing["start_date"])
     today = date.today()
+    today_str = today.isoformat()
 
     for js_path in sorted(OUTPUT_DIR.glob("predictions_????-??-??.js")):
         m = re.search(r'predictions_(\d{4}-\d{2}-\d{2})\.js', js_path.name)
@@ -114,7 +129,7 @@ def update():
         except ValueError:
             continue
 
-        if d < start or d >= today:   # 시즌 전, 오늘(진행 중) 제외
+        if d < start or d > today:   # 시즌 전 제외 (오늘 포함)
             continue
 
         games = parse_js(js_path)
@@ -127,8 +142,35 @@ def update():
                 new_entries.append(entry)
                 existing_keys.add(key)
 
+    # ── 오늘 경기: predictions.json 에서 결과 확인 (GitHub Actions용) ──
+    today_games = load_predictions_json()
+    today_from_json = [g for g in today_games if g.get("gameDate", "") == today_str or g.get("date", "") == today_str]
+    if not today_from_json and today_games:
+        # gameDate 필드가 없는 경우 전체를 오늘로 처리 (당일 predictions.json 이므로)
+        today_from_json = today_games
+
+    for g in today_from_json:
+        if g.get("model_correct") is None and g.get("actual_winner") is None:
+            continue  # 아직 경기 전 또는 진행 중
+        entry = build_game_entry(g, today_str)
+        if entry is None:
+            continue
+        key = game_key(entry)
+        if key not in existing_keys:
+            new_entries.append(entry)
+            existing_keys.add(key)
+            print(f"  📍 오늘 경기 추가: {entry['away']} @ {entry['home']} → {entry['pick']} ({'✅' if entry['correct'] else '❌'})")
+        else:
+            # 기존 엔트리 업데이트 (결과가 바뀐 경우)
+            for i, eg in enumerate(existing["games"]):
+                if game_key(eg) == key:
+                    if eg.get("actual_winner") != entry.get("actual_winner") and entry.get("actual_winner"):
+                        existing["games"][i] = entry
+                        print(f"  🔄 결과 업데이트: {entry['away']} @ {entry['home']} → {entry['pick']} ({'✅' if entry['correct'] else '❌'})")
+                    break
+
     if not new_entries:
-        print("✅ 추가할 새 결과 없음 (이미 최신)")
+        print("✅ 추가할 새 결과 없음 (오늘 진행 중 경기는 위에서 개별 업데이트)")
     else:
         existing["games"].extend(new_entries)
         existing["games"].sort(key=lambda g: g["date"])
