@@ -183,9 +183,18 @@ jobs:
         run: |
           python src/fetch_news.py mlb-scorecard-web
 
+      # ── 결과 모드: 전날 파이프라인을 season_results 업데이트 전에 실행 ──
+      - name: 전날 파이프라인 실행 (결과 모드 — season_results 업데이트 전 선행)
+        if: steps.config.outputs.MODE == 'results'
+        env:
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: |
+          echo "📊 ${{ steps.config.outputs.RUN_DATE }} 결과 데이터 생성 중 (update_season_results 선행)..."
+          python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }} || echo "⚠️ 파이프라인 실패 (계속 진행)"
+
       - name: season_results.json 실시간 업데이트 (항상 — 경기 종료 즉시 반영)
         run: |
-          # predictions.json에 actual_winner 있는 경기가 있으면 season_results 업데이트
+          # MLB API + predictions.json 병합으로 당일/전날 경기 결과 반영
           # 30분마다 실행되므로 경기 종료 후 최대 30분 내 Accuracy 반영
           python src/update_season_results.py mlb-scorecard-web || echo "⚠️ season_results 업데이트 실패 (계속 진행)"
 
@@ -197,14 +206,6 @@ jobs:
           else
             echo "⚠️  output/predictions.json 없음 — 스킵"
           fi
-
-      - name: 전날 파이프라인 실행 (결과 모드 — 블로그 데이터 준비)
-        if: steps.config.outputs.MODE == 'results'
-        env:
-          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
-        run: |
-          echo "📊 블로그용 ${{ steps.config.outputs.RUN_DATE }} 데이터 생성 중..."
-          python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }} || echo "⚠️ 파이프라인 실패 (계속 진행)"
 
       - name: 블로그 포스트 자동 생성 (결과 모드)
         if: steps.config.outputs.MODE == 'results'

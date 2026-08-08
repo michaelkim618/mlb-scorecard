@@ -87,17 +87,33 @@ def build_game_entry(g, date_str):
     }
 
 
-def load_predictions_json() -> list:
-    """웹 레포의 predictions.json 에서 오늘 경기 데이터 로드 (GitHub Actions용)"""
-    pred_file = WEB_REPO / "public" / "predictions.json"
-    if not pred_file.exists():
-        return []
-    try:
-        data = json.loads(pred_file.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return data
-    except Exception as e:
-        print(f"⚠️ predictions.json 로드 실패: {e}")
+def load_predictions_json(target_date: str = None) -> list:
+    """
+    predictions.json 에서 경기 데이터 로드.
+    우선순위: output/predictions.json (pipeline 직후) → 웹 레포 predictions.json
+    target_date 가 지정되면 해당 날짜 게임만 필터링.
+    """
+    candidates = [
+        OUTPUT_DIR / "predictions.json",           # pipeline이 방금 생성한 파일
+        WEB_REPO / "public" / "predictions.json",  # 웹 레포 (복원된 파일)
+    ]
+    for pred_file in candidates:
+        if not pred_file.exists():
+            continue
+        try:
+            data = json.loads(pred_file.read_text(encoding="utf-8"))
+            if not isinstance(data, list) or not data:
+                continue
+            if target_date:
+                filtered = [g for g in data if g.get("date", "") == target_date]
+                if filtered:
+                    print(f"  📂 {pred_file.name}에서 {len(filtered)}경기 로드 ({target_date})")
+                    return filtered
+            else:
+                print(f"  📂 {pred_file.name}에서 {len(data)}경기 로드")
+                return data
+        except Exception as e:
+            print(f"⚠️ {pred_file.name} 로드 실패: {e}")
     return []
 
 
@@ -184,12 +200,46 @@ def update():
                 new_entries.append(entry)
                 existing_keys.add(key)
 
+    # ── 누락된 과거 날짜 처리 (yesterday 이전까지) ──
+    from datetime import timedelta
+    existing_dates = {g["date"] for g in existing["games"]}
+    check_date = start
+    while check_date < today:
+        date_str_check = check_date.isoformat()
+        # 이 날짜 게임이 season_results에 하나도 없으면 처리
+        if date_str_check not in existing_dates:
+            print(f"  🔍 누락 날짜 발견: {date_str_check} — API + predictions 조회 중...")
+            past_api = fetch_actual_results_from_api(date_str_check)
+            past_preds = load_predictions_json(target_date=date_str_check)
+            if past_api and past_preds:
+                for g in past_preds:
+                    away_name = g.get("away", "")
+                    home_name  = g.get("home", "")
+                    api_key = f"{away_name}|{home_name}"
+                    if api_key not in past_api:
+                        continue
+                    actual_winner = past_api[api_key]
+                    g = dict(g)
+                    g["actual_winner"] = actual_winner
+                    win_prob = g.get("win_prob", {})
+                    away_pct = (win_prob.get("away", 50) or 50) if isinstance(win_prob, dict) else 50
+                    home_pct = (win_prob.get("home", 50) or 50) if isinstance(win_prob, dict) else 50
+                    pick = g.get("model_winner") or (home_name if home_pct >= away_pct else away_name)
+                    g["model_correct"] = (pick == actual_winner)
+                    entry = build_game_entry(g, date_str_check)
+                    if entry and game_key(entry) not in existing_keys:
+                        new_entries.append(entry)
+                        existing_keys.add(game_key(entry))
+                        print(f"    ✅ {entry['away']} @ {entry['home']} → {entry['pick']} ({'✅' if entry['correct'] else '❌'})")
+        check_date += timedelta(days=1)
+
     # ── 오늘 경기: MLB API로 실제 결과 + predictions.json 병합 ──
     api_results = fetch_actual_results_from_api(today_str)  # { "Away|Home": winner }
-    today_preds = load_predictions_json()
-    today_from_json = [g for g in today_preds if g.get("date", "") == today_str or g.get("gameDate", "") == today_str]
-    if not today_from_json and today_preds:
-        today_from_json = today_preds
+    today_preds = load_predictions_json(target_date=today_str)
+    if not today_preds:
+        today_preds = load_predictions_json()  # 날짜 필터 없이 재시도
+
+    today_from_json = [g for g in today_preds if g.get("date", "") == today_str] or today_preds
 
     for g in today_from_json:
         away_name = g.get("away", "")
