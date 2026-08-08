@@ -9,8 +9,11 @@ season_results.json 업데이트 스크립트
 import json
 import re
 import sys
+import requests
 from datetime import date, datetime
 from pathlib import Path
+
+MLB_API = "https://statsapi.mlb.com/api/v1"
 
 # ─── 경로 설정 ──────────────────────────────────────────────────
 SCRIPT_DIR  = Path(__file__).parent
@@ -98,6 +101,45 @@ def load_predictions_json() -> list:
     return []
 
 
+def fetch_actual_results_from_api(game_date: str) -> dict:
+    """
+    MLB Stats API에서 특정 날짜의 Final 경기 결과를 가져옴
+    반환: { "TeamA|TeamB": actual_winner_name, ... }  (away|home 기준)
+    """
+    url = f"{MLB_API}/schedule"
+    params = {"sportId": 1, "date": game_date}
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"⚠️ MLB API 호출 실패: {e}")
+        return {}
+
+    results = {}
+    for date_block in data.get("dates", []):
+        for g in date_block.get("games", []):
+            if g.get("gameType") != "R":
+                continue
+            status = g.get("status", {}).get("abstractGameState", "")
+            if status != "Final":
+                continue
+            away = g["teams"]["away"]
+            home = g["teams"]["home"]
+            away_name = away["team"]["name"]
+            home_name  = home["team"]["name"]
+            if away.get("isWinner"):
+                winner = away_name
+            elif home.get("isWinner"):
+                winner = home_name
+            else:
+                continue
+            key = f"{away_name}|{home_name}"
+            results[key] = winner
+    print(f"  🌐 MLB API → {len(results)}경기 Final 결과 확인 ({game_date})")
+    return results
+
+
 def update():
     existing = load_season_results()
 
@@ -142,16 +184,37 @@ def update():
                 new_entries.append(entry)
                 existing_keys.add(key)
 
-    # ── 오늘 경기: predictions.json 에서 결과 확인 (GitHub Actions용) ──
-    today_games = load_predictions_json()
-    today_from_json = [g for g in today_games if g.get("gameDate", "") == today_str or g.get("date", "") == today_str]
-    if not today_from_json and today_games:
-        # gameDate 필드가 없는 경우 전체를 오늘로 처리 (당일 predictions.json 이므로)
-        today_from_json = today_games
+    # ── 오늘 경기: MLB API로 실제 결과 + predictions.json 병합 ──
+    api_results = fetch_actual_results_from_api(today_str)  # { "Away|Home": winner }
+    today_preds = load_predictions_json()
+    today_from_json = [g for g in today_preds if g.get("date", "") == today_str or g.get("gameDate", "") == today_str]
+    if not today_from_json and today_preds:
+        today_from_json = today_preds
 
     for g in today_from_json:
-        if g.get("model_correct") is None and g.get("actual_winner") is None:
+        away_name = g.get("away", "")
+        home_name  = g.get("home", "")
+        api_key = f"{away_name}|{home_name}"
+
+        # API 결과를 predictions 데이터에 병합
+        if api_key in api_results:
+            actual_winner = api_results[api_key]
+            g = dict(g)  # 원본 변경 방지
+            g["actual_winner"] = actual_winner
+
+            # model_correct 계산
+            win_prob = g.get("win_prob", {})
+            if isinstance(win_prob, dict):
+                away_pct = win_prob.get("away", 50) or 50
+                home_pct = win_prob.get("home", 50) or 50
+            else:
+                away_pct = home_pct = 50
+            pick = g.get("model_winner") or (home_name if home_pct >= away_pct else away_name)
+            g["model_correct"] = (pick == actual_winner)
+
+        if g.get("model_correct") is None:
             continue  # 아직 경기 전 또는 진행 중
+
         entry = build_game_entry(g, today_str)
         if entry is None:
             continue
