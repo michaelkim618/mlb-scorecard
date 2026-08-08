@@ -427,6 +427,7 @@ def run(game_date: Optional[str] = None) -> list:
             div_rank=away_st.get("div_rank"),
             wins=away_st.get("wins"),
             losses=away_st.get("losses"),
+            away_wpct=away_st.get("away_wpct"),
         )
         home_sit_s = situational_score(
             is_home=True,
@@ -434,8 +435,11 @@ def run(game_date: Optional[str] = None) -> list:
             div_rank=home_st.get("div_rank"),
             wins=home_st.get("wins"),
             losses=home_st.get("losses"),
+            home_wpct=home_st.get("home_wpct"),
         )
-        print(f"    [상황] {away_name}: {away_sit_s}점 (streak {away_st.get('streak_wins',0):+d}) | {home_name}: {home_sit_s}점 (streak {home_st.get('streak_wins',0):+d})")
+        home_wpct_val = home_st.get("home_wpct", 0.54)
+        away_wpct_val = away_st.get("away_wpct", 0.46)
+        print(f"    [상황] {away_name}: {away_sit_s}점 (streak {away_st.get('streak_wins',0):+d}, 원정승률 {away_wpct_val:.3f}) | {home_name}: {home_sit_s}점 (streak {home_st.get('streak_wins',0):+d}, 홈승률 {home_wpct_val:.3f})")
 
         # ── 4.5 쿠어스 필드 보정 (COL 홈경기) ────────────────────────
         is_coors = ("Colorado" in home_name or "Rockies" in home_name)

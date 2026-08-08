@@ -64,11 +64,22 @@ def get_pitcher_gamelog(pitcher_id: int, limit: int = 6) -> list:
         "limit": limit,
     })
     splits = data.get("stats", [{}])[0].get("splits", [])
+    # 팀ID → 약자 매핑
+    _ABBR = {
+        108:'LAA',109:'OAK',110:'BAL',111:'BOS',112:'CHC',113:'CIN',114:'CLE',115:'COL',
+        116:'DET',117:'HOU',118:'KC', 119:'LAD',120:'WSH',121:'NYM',133:'OAK',134:'PIT',
+        135:'SD', 136:'SEA',137:'SF', 138:'STL',139:'TB', 140:'TEX',141:'TOR',142:'MIN',
+        143:'PHI',144:'ATL',145:'CWS',146:'MIA',147:'NYY',158:'MIL',
+    }
     result = []
     for s in splits[:limit]:
         entry = dict(s["stat"])
         if "date" in s:
             entry["_game_date"] = s["date"]  # 등판 날짜 (휴식일 계산용)
+        opp = s.get("opponent", {}) or {}
+        opp_id = opp.get("id")
+        entry["_opponent"] = _ABBR.get(opp_id, opp.get("name", "")[:3].upper()) if opp_id else ""
+        entry["_is_home"] = s.get("isHome", False)
         result.append(entry)
     return result
 
@@ -129,6 +140,22 @@ def get_standings_map() -> dict:
             losses = int(tr.get("losses", 0) or 0)
             games_back = tr.get("gamesBack", "-") or "-"
             div_name = div_short
+
+            # 홈/원정 분리 성적
+            hr = tr.get("records", {}).get("splitRecords", [])
+            home_wins = away_wins = home_losses = away_losses = 0
+            for split in hr:
+                if split.get("type") == "home":
+                    home_wins   = int(split.get("wins", 0) or 0)
+                    home_losses = int(split.get("losses", 0) or 0)
+                elif split.get("type") == "away":
+                    away_wins   = int(split.get("wins", 0) or 0)
+                    away_losses = int(split.get("losses", 0) or 0)
+            home_total = home_wins + home_losses
+            away_total = away_wins + away_losses
+            home_wpct = home_wins / home_total if home_total > 0 else 0.500
+            away_wpct = away_wins / away_total if away_total > 0 else 0.500
+
             result[tid] = {
                 "runs_scored": rs,
                 "runs_allowed": ra,
@@ -140,6 +167,12 @@ def get_standings_map() -> dict:
                 "wins": wins,
                 "losses": losses,
                 "games_back": games_back,
+                "home_wins": home_wins,
+                "home_losses": home_losses,
+                "home_wpct": home_wpct,
+                "away_wins": away_wins,
+                "away_losses": away_losses,
+                "away_wpct": away_wpct,
             }
     return result
 

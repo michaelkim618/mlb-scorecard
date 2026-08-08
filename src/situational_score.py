@@ -10,16 +10,37 @@ def situational_score(
     div_rank: Optional[int] = None,
     wins: Optional[int] = None,
     losses: Optional[int] = None,
+    home_wpct: Optional[float] = None,   # 팀 실제 홈 승률 (0.0~1.0)
+    away_wpct: Optional[float] = None,   # 팀 실제 원정 승률 (원정팀에 적용)
 ) -> float:
     """
     상황적 요소 → 0~100 점수
     streak: 양수=연승, 음수=연패
+    home_wpct: 해당 팀의 시즌 홈 승률 → 홈 어드밴티지 동적 조정
+    away_wpct: 해당 팀의 시즌 원정 승률 → 원정 강팀 보정
     """
     score = 50.0
 
-    # 홈 어드밴티지
+    # ── 홈 어드밴티지 (팀 실제 홈 성적 기반 동적 조정) ──────────────
+    # MLB 평균 홈 승률 ≈ 54%. 고정 +5pt → 팀별 차등 적용
     if is_home:
-        score += 5.0
+        wpct = home_wpct if home_wpct is not None else 0.540  # 기본값: MLB 평균
+        if wpct >= 0.620:
+            score += 5.0    # 홈 강팀 (62%+): 강한 어드밴티지
+        elif wpct >= 0.560:
+            score += 3.5    # 홈 평균 이상 (56~62%)
+        elif wpct >= 0.500:
+            score += 2.0    # 홈 평균 이하 (50~56%)
+        else:
+            score += 0.5    # 홈 약팀 (50% 미만): 거의 어드밴티지 없음
+
+    # ── 원정 강팀 보정 ────────────────────────────────────────────────
+    # 원정에서 특히 강한 팀은 원정에서도 어드밴티지 인정
+    elif not is_home and away_wpct is not None:
+        if away_wpct >= 0.600:
+            score += 2.0    # 원정 강팀: 소폭 보정
+        elif away_wpct < 0.400:
+            score -= 2.0    # 원정 약팀: 페널티
 
     # 연승/연패 모멘텀
     if streak >= 7:

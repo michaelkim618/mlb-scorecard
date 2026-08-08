@@ -11,7 +11,7 @@
     "closer_save_era":       0.30,
     "runs_allowed_last10":   0.10
   },
-  "home_bonus": 0.03,
+  "home_bonus": 0.015,
   "simulation": {
     "iterations": 10000,
     "score_scale": 9.0
@@ -33,7 +33,7 @@
     "bp_weight":  0.20,
     "bat_weight": 0.35,
     "sit_weight": 0.15,
-    "home_bonus": 3.0,
+    "home_bonus": 1.5,
     "sigmoid_k":  0.055,
     "tbd_penalty_score": 45.0,
     "hard_cap": 67.0,
