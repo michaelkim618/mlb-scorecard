@@ -114,7 +114,7 @@ jobs:
           token: ${{ secrets.WEB_REPO_PAT }}
           path: mlb-scorecard-web
 
-      # ── daily_init: 당일 예측 초기화 ──
+      # ── daily_init: 당일 예측 초기화 + 즉시 웹 레포에 복사 ──
       - name: 당일 예측 초기화 (daily_init — 00:01 PST, 홈페이지만 업데이트)
         if: steps.config.outputs.MODE == 'daily_init'
         env:
@@ -123,6 +123,17 @@ jobs:
           echo "🌙 00:01 PST — 당일 경기 예측 초기화 시작 (${{ steps.config.outputs.RUN_DATE }})"
           python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }}
           echo "✅ 예측 완료 — SNS 포스팅 없음, 홈페이지만 업데이트"
+
+      # daily_init: 오늘 예측을 즉시 웹에 저장 (이후 전날 파이프라인이 output/ 덮어쓰기 전에)
+      - name: predictions.json 웹 업데이트 (daily_init — 오늘 예측 즉시 저장)
+        if: steps.config.outputs.MODE == 'daily_init'
+        run: |
+          if [ -f output/predictions.json ]; then
+            cp output/predictions.json mlb-scorecard-web/public/predictions.json
+            echo "✅ 오늘 예측 → 웹 레포 복사 완료"
+          else
+            echo "⚠️  output/predictions.json 없음 — 스킵"
+          fi
 
       # ── prediction / results 모드: 포스팅 ──
 
@@ -183,29 +194,22 @@ jobs:
         run: |
           python src/fetch_news.py mlb-scorecard-web
 
-      # ── 결과 모드: 전날 파이프라인을 season_results 업데이트 전에 실행 ──
-      - name: 전날 파이프라인 실행 (결과 모드 — season_results 업데이트 전 선행)
-        if: steps.config.outputs.MODE == 'results'
+      # ── 전날 파이프라인 (항상) — season_results 업데이트 전 선행 ──
+      # 어제 경기 결과(actual_winner)를 output/predictions.json 에 포함시켜
+      # update_season_results.py 가 어제 결과를 정확히 기록할 수 있게 함
+      - name: 전날 파이프라인 실행 (항상 — season_results 업데이트 전 선행)
         env:
           SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
         run: |
-          echo "📊 ${{ steps.config.outputs.RUN_DATE }} 결과 데이터 생성 중 (update_season_results 선행)..."
-          python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }} || echo "⚠️ 파이프라인 실패 (계속 진행)"
+          YESTERDAY=$(TZ='America/Los_Angeles' date -d "yesterday" +%Y-%m-%d 2>/dev/null || TZ='America/Los_Angeles' date -v-1d +%Y-%m-%d)
+          echo "📊 전날($YESTERDAY) 결과 데이터 생성 중..."
+          python src/scorecard_pipeline.py $YESTERDAY || echo "⚠️ 전날 파이프라인 실패 (계속 진행)"
 
       - name: season_results.json 실시간 업데이트 (항상 — 경기 종료 즉시 반영)
         run: |
           # MLB API + predictions.json 병합으로 당일/전날 경기 결과 반영
           # 30분마다 실행되므로 경기 종료 후 최대 30분 내 Accuracy 반영
           python src/update_season_results.py mlb-scorecard-web || echo "⚠️ season_results 업데이트 실패 (계속 진행)"
-
-      - name: predictions.json 업데이트 (항상 - 라인업 확정 반영)
-        run: |
-          if [ -f output/predictions.json ]; then
-            cp output/predictions.json mlb-scorecard-web/public/predictions.json
-            echo "✅ predictions.json 복사 완료"
-          else
-            echo "⚠️  output/predictions.json 없음 — 스킵"
-          fi
 
       - name: 블로그 포스트 자동 생성 (결과 모드)
         if: steps.config.outputs.MODE == 'results'
