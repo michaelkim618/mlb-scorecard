@@ -98,9 +98,6 @@ jobs:
             # 새벽 6시: 전날 최종 결과 포스팅 (SNS 포함)
             MODE="results"
             RUN_DATE="$YESTERDAY"
-          elif [ "$PST_HOUR" = "23" ] || [ "$PST_HOUR" = "22" ]; then
-            # 밤 10~11시: 당일 경기 종료 후 season_results 조용히 업데이트 (SNS 포스팅 없음)
-            MODE="results_silent"
           else
             MODE="prediction"
           fi
@@ -117,14 +114,6 @@ jobs:
           token: ${{ secrets.WEB_REPO_PAT }}
           path: mlb-scorecard-web
 
-      # ── results_silent: 경기 종료 후 조용히 Accuracy 업데이트 (SNS 포스팅 없음) ──
-      - name: 경기 결과 조용히 업데이트 (results_silent — 밤 10~11시 PST)
-        if: steps.config.outputs.MODE == 'results_silent'
-        run: |
-          echo "🌙 results_silent — season_results.json 업데이트 (SNS 포스팅 없음)"
-          python src/update_season_results.py mlb-scorecard-web
-          echo "✅ Accuracy 업데이트 완료"
-
       # ── daily_init: 당일 예측 초기화 ──
       - name: 당일 예측 초기화 (daily_init — 00:01 PST, 홈페이지만 업데이트)
         if: steps.config.outputs.MODE == 'daily_init'
@@ -138,7 +127,7 @@ jobs:
       # ── prediction / results 모드: 포스팅 ──
 
       - name: 포스팅 상태 & predictions.json 복원 (웹 레포 git — 신뢰성 보장)
-        if: steps.config.outputs.MODE != 'daily_init' && steps.config.outputs.MODE != 'results_silent'
+        if: steps.config.outputs.MODE != 'daily_init'
         run: |
           mkdir -p output/post_state
 
@@ -160,7 +149,7 @@ jobs:
           fi
 
       - name: 스마트 포스팅 체크 & 실행 (prediction / results 모드)
-        if: steps.config.outputs.MODE != 'daily_init' && steps.config.outputs.MODE != 'results_silent'
+        if: steps.config.outputs.MODE != 'daily_init'
         env:
           SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
           TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
@@ -177,7 +166,7 @@ jobs:
           fi
 
       - name: 포스팅 상태 저장 (웹 레포 git — 중복 포스팅 방지)
-        if: steps.config.outputs.MODE != 'daily_init' && steps.config.outputs.MODE != 'results_silent'
+        if: steps.config.outputs.MODE != 'daily_init'
         run: |
           STATE_SRC="output/post_state/posted_${{ steps.config.outputs.RUN_DATE }}.json"
           STATE_DST="mlb-scorecard-web/public/post_state_${{ steps.config.outputs.RUN_DATE }}.json"
@@ -194,10 +183,11 @@ jobs:
         run: |
           python src/fetch_news.py mlb-scorecard-web
 
-      - name: season_results.json 업데이트 (결과 모드)
-        if: steps.config.outputs.MODE == 'results'
+      - name: season_results.json 실시간 업데이트 (항상 — 경기 종료 즉시 반영)
         run: |
-          python src/update_season_results.py mlb-scorecard-web
+          # predictions.json에 actual_winner 있는 경기가 있으면 season_results 업데이트
+          # 30분마다 실행되므로 경기 종료 후 최대 30분 내 Accuracy 반영
+          python src/update_season_results.py mlb-scorecard-web || echo "⚠️ season_results 업데이트 실패 (계속 진행)"
 
       - name: predictions.json 업데이트 (항상 - 라인업 확정 반영)
         run: |
