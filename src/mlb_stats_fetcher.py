@@ -28,6 +28,46 @@ def get_team_hitting_log(team_id: int, limit: int = 10) -> list:
     return [s["stat"] for s in splits[:limit]]
 
 
+def get_team_hitting_log_split(team_id: int, n: int = 10) -> dict:
+    """
+    홈/원정 분리 타격 게임로그 (각 최근 N경기)
+    Returns: {
+        "home": [stat dict, ...],   # 최근 N홈경기 (최신순)
+        "away": [stat dict, ...],   # 최근 N원정경기 (최신순)
+        "all":  [stat dict, ...],   # 전체 최근 N경기
+    }
+    """
+    # 충분한 데이터를 가져오기 위해 더 많이 요청 (홈/원정 각 N경기 보장용)
+    fetch_limit = max(n * 4, 40)
+    data = _get(f"{BASE}/teams/{team_id}/stats", {
+        "stats": "gameLog",
+        "group": "hitting",
+        "season": SEASON,
+        "limit": fetch_limit,
+    })
+    splits = data.get("stats", [{}])[0].get("splits", [])
+
+    home_logs = []
+    away_logs = []
+    all_logs  = []
+
+    for s in splits:
+        stat = dict(s["stat"])
+        stat["_is_home"] = s.get("isHome", False)
+        stat["_date"]    = s.get("date", "")
+        all_logs.append(stat)
+        if s.get("isHome"):
+            home_logs.append(stat)
+        else:
+            away_logs.append(stat)
+
+    return {
+        "home": home_logs[:n],
+        "away": away_logs[:n],
+        "all":  all_logs[:n],
+    }
+
+
 def get_team_hitting_season(team_id: int) -> dict:
     """팀 시즌 타격 스탯 (리그 순위 계산용)"""
     data = _get(f"{BASE}/teams/{team_id}/stats", {

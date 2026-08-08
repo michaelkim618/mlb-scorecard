@@ -16,7 +16,8 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent))
 
 from mlb_schedule         import get_games
-from mlb_stats_fetcher    import (get_team_hitting_log, get_team_pitching_log,
+from mlb_stats_fetcher    import (get_team_hitting_log, get_team_hitting_log_split,
+                                   get_team_pitching_log,
                                    get_pitcher_gamelog, get_pitcher_season,
                                    get_standings_map)
 from pitcher_recent_score import analyze_pitcher_recent, pitcher_score, _default_pitcher
@@ -36,6 +37,25 @@ import requests as _requests
 
 OUTPUT_DIR  = Path(__file__).parent.parent / "output"
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "weights.json"
+
+
+def _calc_hitting_stats_simple(logs: list) -> dict:
+    """게임로그 리스트 → 간단한 타격 통계 (split UI 표시용)"""
+    n = len(logs)
+    if n == 0:
+        return {"recent_avg": 0.250, "runs_per_g": 0.0, "hr_per_g": 0.0, "n_games": 0}
+    total_r = total_h = total_ab = total_hr = 0
+    for s in logs:
+        total_r  += int(s.get("runs", 0)     or 0)
+        total_h  += int(s.get("hits", 0)     or 0)
+        total_ab += int(s.get("atBats", 0)   or 0)
+        total_hr += int(s.get("homeRuns", 0) or 0)
+    return {
+        "recent_avg": round(total_h / total_ab, 3) if total_ab > 0 else 0.250,
+        "runs_per_g": round(total_r / n, 1),
+        "hr_per_g":   round(total_hr / n, 2),
+        "n_games":    n,
+    }
 
 
 def _load_scorecard_config() -> dict:
@@ -350,8 +370,14 @@ def run(game_date: Optional[str] = None) -> list:
 
         # ── 3. 타선 분석 ─────────────────────────────────────────────
         #   우선순위: ① 확정 라인업+시즌OPS  ② 전날 라인업+LHP/RHP스플릿  ③ 팀통계
-        away_hit_log = _safe(lambda aid=away_id: get_team_hitting_log(aid, 10), [], "원정 타격로그")
-        home_hit_log = _safe(lambda hid=home_id: get_team_hitting_log(hid, 10), [], "홈 타격로그")
+        # 홈/원정 분리 로그 (예측 정확도 + UI 표시용)
+        away_hit_split = _safe(lambda aid=away_id: get_team_hitting_log_split(aid, 10),
+                               {"home": [], "away": [], "all": []}, "원정 타격로그(split)")
+        home_hit_split = _safe(lambda hid=home_id: get_team_hitting_log_split(hid, 10),
+                               {"home": [], "away": [], "all": []}, "홈 타격로그(split)")
+        # 기존 호환용: 전체 최근 10경기 (lineup_batting 함수에 전달)
+        away_hit_log = away_hit_split.get("all") or _safe(lambda aid=away_id: get_team_hitting_log(aid, 10), [], "원정 타격로그")
+        home_hit_log = home_hit_split.get("all") or _safe(lambda hid=home_id: get_team_hitting_log(hid, 10), [], "홈 타격로그")
 
         game_pk = g.get("gamePk")
         lineup  = _safe(lambda pk=game_pk: get_game_lineup(pk), None, "라인업") if game_pk else None
@@ -406,16 +432,36 @@ def run(game_date: Optional[str] = None) -> list:
                 print(f"    [타선 📋추정] {home_name} vs {away_handedness}P ({splits_tag}): {', '.join(home_names_prev)} 등")
 
             else:
-                # ③ 팀 통계 fallback
+                # ③ 팀 통계 fallback — 원정팀은 원정 10경기, 홈팀은 홈 10경기 사용
                 bat_source = "team_stats"
-                away_bat_detail = analyze_batting(away_hit_log, {})
-                home_bat_detail = analyze_batting(home_hit_log, {})
-                print(f"    [타선 ⏳팀통계] 라인업 미공개 → 팀 최근 10경기 통계 사용")
+                away_split_logs = away_hit_split.get("away") or away_hit_log
+                home_split_logs = home_hit_split.get("home") or home_hit_log
+                away_bat_detail = analyze_batting(away_split_logs, {}, split_logs=away_hit_split)
+                home_bat_detail = analyze_batting(home_split_logs, {}, split_logs=home_hit_split)
+                print(f"    [타선 ⏳팀통계] 라인업 미공개 → 원정팀 원정10경기 / 홈팀 홈10경기 사용")
+
+        # ── split 데이터를 bat_detail에 보강 (라인업 모드도 포함) ──────
+        if "home_split" not in away_bat_detail:
+            hs = away_hit_split.get("home", [])
+            as_ = away_hit_split.get("away", [])
+            if hs:
+                away_bat_detail["home_split"] = _calc_hitting_stats_simple(hs)
+            if as_:
+                away_bat_detail["away_split"] = _calc_hitting_stats_simple(as_)
+        if "home_split" not in home_bat_detail:
+            hs = home_hit_split.get("home", [])
+            as_ = home_hit_split.get("away", [])
+            if hs:
+                home_bat_detail["home_split"] = _calc_hitting_stats_simple(hs)
+            if as_:
+                home_bat_detail["away_split"] = _calc_hitting_stats_simple(as_)
 
         away_bat_s = batting_score(away_bat_detail)
         home_bat_s = batting_score(home_bat_detail)
-        print(f"    [타선] {away_name}: avg {away_bat_detail['recent_avg']:.3f} OPS {away_bat_detail['season_ops']:.3f} 득점 {away_bat_detail['runs_per_g']} → {away_bat_s}점")
-        print(f"    [타선] {home_name}: avg {home_bat_detail['recent_avg']:.3f} OPS {home_bat_detail['season_ops']:.3f} 득점 {home_bat_detail['runs_per_g']} → {home_bat_s}점")
+        away_split_label = f"원정{len(away_hit_split.get('away',[]))}경기" if away_hit_split.get("away") else "전체10경기"
+        home_split_label = f"홈{len(home_hit_split.get('home',[]))}경기"  if home_hit_split.get("home")  else "전체10경기"
+        print(f"    [타선] {away_name}({away_split_label}): avg {away_bat_detail['recent_avg']:.3f} OPS {away_bat_detail['season_ops']:.3f} 득점 {away_bat_detail['runs_per_g']} → {away_bat_s}점")
+        print(f"    [타선] {home_name}({home_split_label}): avg {home_bat_detail['recent_avg']:.3f} OPS {home_bat_detail['season_ops']:.3f} 득점 {home_bat_detail['runs_per_g']} → {home_bat_s}점")
 
         # ── 4. 상황 분석 ──────────────────────────────────────────────
         away_st = standings_map.get(away_id, {})

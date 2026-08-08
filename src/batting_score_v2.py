@@ -3,35 +3,25 @@
 """
 
 
-def analyze_batting(hit_logs: list, season_stats: dict = None) -> dict:
-    """
-    팀 타격 게임로그 분석
-    hit_logs: get_team_hitting_log() 반환값 (stat dict 리스트)
-    season_stats: get_team_hitting_season() 반환값 (optional)
-    """
+def _calc_hitting_stats(logs: list, season_stats: dict = None) -> dict:
+    """게임로그 리스트 → 타격 통계 dict (내부 공용 함수)"""
     season_stats = season_stats or {}
-
-    # 최근 10경기 집계
-    logs = hit_logs[:10]
     n = len(logs)
     total_r = total_h = total_ab = total_hr = total_bb = 0
 
     for s in logs:
-        total_r  += int(s.get("runs", 0)         or 0)
-        total_h  += int(s.get("hits", 0)          or 0)
-        total_ab += int(s.get("atBats", 0)        or 0)
-        total_hr += int(s.get("homeRuns", 0)      or 0)
-        total_bb += int(s.get("baseOnBalls", 0)   or 0)
+        total_r  += int(s.get("runs", 0)        or 0)
+        total_h  += int(s.get("hits", 0)         or 0)
+        total_ab += int(s.get("atBats", 0)       or 0)
+        total_hr += int(s.get("homeRuns", 0)     or 0)
+        total_bb += int(s.get("baseOnBalls", 0)  or 0)
 
-    recent_avg  = round(total_h / total_ab, 3) if total_ab > 0 else 0.250
-    runs_per_g  = round(total_r / n, 1)        if n > 0        else 4.3
-    hr_per_g    = round(total_hr / n, 2)       if n > 0        else 1.1
-    bb_per_g    = round(total_bb / n, 1)       if n > 0        else 3.0
-
-    # 폭발 지표: 최근 10경기 중 7점+ 득점 횟수 (CWS 10점처럼 저평가 타선 폭발 대비)
+    recent_avg = round(total_h / total_ab, 3) if total_ab > 0 else 0.250
+    runs_per_g = round(total_r / n, 1)        if n > 0        else 4.3
+    hr_per_g   = round(total_hr / n, 2)       if n > 0        else 1.1
+    bb_per_g   = round(total_bb / n, 1)       if n > 0        else 3.0
     explosive_games = sum(1 for s in logs if int(s.get("runs", 0) or 0) >= 7)
 
-    # 시즌 OPS / AVG
     try:
         season_ops = float(season_stats.get("ops", 0.720) or 0.720)
     except Exception:
@@ -49,8 +39,38 @@ def analyze_batting(hit_logs: list, season_stats: dict = None) -> dict:
         "season_ops":      season_ops,
         "season_avg":      season_avg,
         "n_games":         n,
-        "explosive_games": explosive_games,  # 7점+ 득점 경기 수
+        "explosive_games": explosive_games,
     }
+
+
+def analyze_batting(hit_logs: list, season_stats: dict = None,
+                    split_logs: dict = None) -> dict:
+    """
+    팀 타격 게임로그 분석
+    hit_logs:   get_team_hitting_log() 반환값 (stat dict 리스트) — 최근 전체
+    season_stats: get_team_hitting_season() 반환값 (optional)
+    split_logs: get_team_hitting_log_split() 반환값 (optional)
+                {"home": [...], "away": [...], "all": [...]}
+                제공 시 메인 통계는 홈/원정 실제 경기 방향 기준으로 계산
+    """
+    season_stats = season_stats or {}
+
+    # 메인 통계: 최근 10경기 (전체)
+    logs = hit_logs[:10]
+    result = _calc_hitting_stats(logs, season_stats)
+
+    # 홈/원정 분리 통계 (split_logs 제공 시)
+    if split_logs:
+        home_logs = split_logs.get("home", [])
+        away_logs = split_logs.get("away", [])
+        if home_logs:
+            result["home_split"] = _calc_hitting_stats(home_logs, season_stats)
+            result["home_split"]["n_games"] = len(home_logs)
+        if away_logs:
+            result["away_split"] = _calc_hitting_stats(away_logs, season_stats)
+            result["away_split"]["n_games"] = len(away_logs)
+
+    return result
 
 
 def batting_score(stats: dict) -> float:
