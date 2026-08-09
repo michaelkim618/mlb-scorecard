@@ -111,12 +111,16 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
     else:
         trend = "cold"   # ERA 4.0 이상 = 불안정
 
-    # 직전 등판 경보: Hot/Stable이어도 최근 2경기 중 1개라도 ERA >= 6.0이면 위험 신호
-    # (5경기 평균이 희석시키는 최근 나쁜 등판 포착 — 1경기 7.0 기준보다 더 정교)
-    recent_bad_start = (
-        trend in ("hot", "stable")
-        and any(e >= 6.0 for e in last2_eras)
-    )
+    # 직전 등판 경보
+    # ㆍhot/stable: 최근 2경기 중 1개라도 ERA >= 6.0 → 위험 신호 (5경기 평균이 희석하는 급락 포착)
+    # ㆍcold:       cold 패널티(-8pt)는 이미 적용되지만, 최근 2경기 ERA >= 9.0이면 극단적 붕괴
+    #               → 추가 경보 (ERA 15.0 같은 완전 붕괴 케이스 반영)
+    if trend in ("hot", "stable"):
+        recent_bad_start = any(e >= 6.0 for e in last2_eras)
+    elif trend == "cold":
+        recent_bad_start = any(e >= 9.0 for e in last2_eras)   # cold는 기준 높임 (이중패널티 최소화)
+    else:
+        recent_bad_start = False
 
     # ── 샘플 신뢰도 ──────────────────────────────────────────────────
     # n_games < 5: 소수 샘플 → ERA 신뢰도 낮음, 기본값 방향으로 회귀
@@ -196,18 +200,20 @@ def pitcher_score(stats: dict, season_era: float = None) -> float:
     LEAGUE_AVG = 45.0
     score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
 
-    # 트렌드 보정 (완화된 값)
-    # hot: +3pt (이전 +6pt) | cold: -8pt (이전 -14pt) | neutral: 보정 없음
+    # 트렌드 보정
+    # hot: +3pt | cold: -8pt | neutral: 보정 없음
     if trend == "hot" and not recent_bad_start:
         score = min(100.0, score + 3.0)
     elif trend == "cold":
-        score = max(0.0,   score - 8.0)
+        score = max(0.0, score - 8.0)
     # neutral (장기 휴식 복귀): trend 보정 없음 → 최근 기록 그대로 반영
 
-    # 직전 등판 경보 페널티: Hot/Stable인데 마지막 등판 ERA >= 7.0
-    # 5경기 평균이 좋아도 최근 1경기가 나쁘면 위험 신호 반영
+    # 직전 등판 경보 페널티
+    # ㆍhot/stable + ERA >= 6.0: -7pt (5경기 평균에 희석된 급락 신호)
+    # ㆍcold       + ERA >= 9.0: -5pt (cold -8pt 이미 적용 → 추가 완화 페널티)
     if recent_bad_start:
-        score = max(0.0, score - 7.0)
+        extra_penalty = 5.0 if trend == "cold" else 7.0
+        score = max(0.0, score - extra_penalty)
 
     # 휴식일 보정
     if rest_note == "short_rest":
