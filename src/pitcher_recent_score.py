@@ -89,14 +89,17 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
     l5_games  = len(last5)
     l5_avg_ip = round(l5_ip / l5_games, 1) if l5_games > 0 else 0.0
 
-    # 직전 마지막 등판 ERA (1경기) — 최신 경향 포착용
-    last1 = logs[-1] if logs else None
-    if last1:
-        last1_ip = _ip_to_float(last1.get("inningsPitched", "0"))
-        last1_er = float(last1.get("earnedRuns", 0) or 0)
-        last_start_era = round(last1_er / last1_ip * 9, 2) if last1_ip > 0 else 0.0
-    else:
-        last_start_era = None
+    # 직전 2경기 per-game ERA 계산 — 최신 경향 포착용
+    last2_logs = logs[-2:] if len(logs) >= 2 else logs[-1:]
+    last2_eras = []
+    for s in last2_logs:
+        ip = _ip_to_float(s.get("inningsPitched", "0"))
+        er = float(s.get("earnedRuns", 0) or 0)
+        if ip > 0:
+            last2_eras.append(round(er / ip * 9, 2))
+
+    # 직전 마지막 등판 ERA (UI 표시용)
+    last_start_era = last2_eras[-1] if last2_eras else None
 
     # 트렌드 판정 (절대 ERA 기준)
     if l5_avg_ip < 3.0:
@@ -108,12 +111,11 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
     else:
         trend = "cold"   # ERA 4.0 이상 = 불안정
 
-    # 직전 등판 경보: Hot/Stable이어도 마지막 1경기 ERA >= 7.0이면 위험 신호
-    # (5경기 평균이 희석시키는 최근 나쁜 등판 포착)
+    # 직전 등판 경보: Hot/Stable이어도 최근 2경기 중 1개라도 ERA >= 6.0이면 위험 신호
+    # (5경기 평균이 희석시키는 최근 나쁜 등판 포착 — 1경기 7.0 기준보다 더 정교)
     recent_bad_start = (
         trend in ("hot", "stable")
-        and last_start_era is not None
-        and last_start_era >= 7.0
+        and any(e >= 6.0 for e in last2_eras)
     )
 
     # ── 샘플 신뢰도 ──────────────────────────────────────────────────
@@ -147,7 +149,8 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
         "qs_rate":          qs_rate,
         "last3_era":        last5_era,       # 대시보드 표시용 (필드명 유지)
         "last_start_era":   last_start_era,  # 직전 마지막 등판 ERA
-        "recent_bad_start": recent_bad_start,# Hot/Stable인데 직전 ERA >= 7.0
+        "last2_eras":       last2_eras,      # 직전 2경기 per-game ERA 리스트
+        "recent_bad_start": recent_bad_start,# Hot/Stable인데 최근 2경기 중 1개라도 ERA >= 6.0
         "trend":            trend,
         "n_games":          n_games,
         "sample_confidence": sample_confidence,
