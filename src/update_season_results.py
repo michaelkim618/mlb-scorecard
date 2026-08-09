@@ -12,6 +12,7 @@ import sys
 import requests
 from datetime import date, datetime
 from pathlib import Path
+import pytz
 
 MLB_API = "https://statsapi.mlb.com/api/v1"
 
@@ -48,10 +49,12 @@ def load_season_results() -> dict:
 
 
 def should_reset_season(existing: dict) -> bool:
-    """다음 시즌 시작일이 지났으면 리셋"""
+    """다음 시즌 시작일이 지났으면 리셋 (PST 기준)"""
     try:
+        import pytz
+        pst_today = datetime.now(pytz.timezone("America/Los_Angeles")).date()
         next_start = date.fromisoformat(NEXT_SEASON_START)
-        return date.today() >= next_start and existing.get("season") != str(date.today().year)
+        return pst_today >= next_start and existing.get("season") != str(pst_today.year)
     except Exception:
         return False
 
@@ -161,9 +164,10 @@ def update():
 
     # 시즌 전환 감지
     if should_reset_season(existing):
-        print(f"🔄 새 시즌 감지 → season_results 리셋 ({SEASON_YEAR} → {date.today().year})")
+        _pst_now = datetime.now(pytz.timezone("America/Los_Angeles"))
+        print(f"🔄 새 시즌 감지 → season_results 리셋 ({SEASON_YEAR} → {_pst_now.year})")
         existing = {
-            "season":     str(date.today().year),
+            "season":     str(_pst_now.year),
             "start_date": NEXT_SEASON_START,
             "games":      [],
         }
@@ -174,8 +178,11 @@ def update():
 
     # output 폴더에서 시즌 시작일 이후 파일 스캔
     start = date.fromisoformat(existing["start_date"])
-    today = date.today()
+    # MLB 경기는 PST 기준 — GitHub Actions(UTC) 자정 이후 날짜 오류 방지
+    pst = pytz.timezone("America/Los_Angeles")
+    today = datetime.now(pst).date()
     today_str = today.isoformat()
+    print(f"  📅 PST 기준 오늘: {today_str} (UTC: {datetime.utcnow().date().isoformat()})")
 
     for js_path in sorted(OUTPUT_DIR.glob("predictions_????-??-??.js")):
         m = re.search(r'predictions_(\d{4}-\d{2}-\d{2})\.js', js_path.name)
