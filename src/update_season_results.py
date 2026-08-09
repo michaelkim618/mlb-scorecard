@@ -78,6 +78,15 @@ def build_game_entry(g, date_str):
     pick      = g.get("model_winner") or (g["home"] if home_pct >= away_pct else g["away"])
     pick_prob = round(max(away_pct, home_pct), 1)
 
+    sc = g.get("scorecard", {}) or {}
+    sc_away = sc.get("away", {}) or {}
+    sc_home = sc.get("home", {}) or {}
+
+    away_sp_detail = sc_away.get("sp_detail", {}) or {}
+    home_sp_detail = sc_home.get("sp_detail", {}) or {}
+    away_bp_detail = sc_away.get("bp_detail", {}) or {}
+    home_bp_detail = sc_home.get("bp_detail", {}) or {}
+
     return {
         "date":          date_str,
         "away":          g.get("away", ""),
@@ -86,7 +95,19 @@ def build_game_entry(g, date_str):
         "pick_prob":     pick_prob,
         "actual_winner": g.get("actual_winner", ""),
         "correct":       bool(g.get("model_correct")),
-        "high_conf":     pick_prob >= 65.0,   # Premium Pick 기준: 65%+
+        "high_conf":     pick_prob >= 65.0,
+        # SP / 불펜 데이터 (Cold SP 패턴 분석용)
+        "away_sp_trend":  away_sp_detail.get("trend"),
+        "home_sp_trend":  home_sp_detail.get("trend"),
+        "away_sp_era":    away_sp_detail.get("era"),
+        "home_sp_era":    home_sp_detail.get("era"),
+        "away_bp_era":    away_bp_detail.get("bullpen_era"),
+        "home_bp_era":    home_bp_detail.get("bullpen_era"),
+        "away_sp_score":  sc_away.get("sp_score"),
+        "home_sp_score":  sc_home.get("sp_score"),
+        "away_bp_score":  sc_away.get("bp_score"),
+        "home_bp_score":  sc_home.get("bp_score"),
+        "bat_source":     sc.get("bat_source"),
     }
 
 

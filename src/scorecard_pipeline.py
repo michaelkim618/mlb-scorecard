@@ -641,9 +641,34 @@ def run(game_date: Optional[str] = None) -> list:
             cap_label = f"수요일{WED_HARD_CAP}%캡" if (is_wednesday and WED_ENABLED) else (f"상대강팀{HARD_CAP_REDUCED}%캡" if not (is_wednesday and WED_ENABLED) else "")
             print(f"    [하드캡] {home_name} {home_win_pct}%로 제한 ({cap_label})")
 
+        # ── 8.5 Cold SP 불펜 안전망 보정 (아이디어 B) ────────────────
+        # Cold SP 팀은 조기 강판 후 불펜이 경기를 지배 → 수비력 계산 시 불펜 비중 상향
+        # 조건: SP Cold + ERA 5.5↑ → 수비력 = SP×0.35 + BP×0.65 (기본: 0.5/0.5)
+        COLD_SP_ERA_THRESHOLD = 5.5
+        COLD_BP_WEIGHT = 0.65
+        COLD_SP_WEIGHT = 0.35
+
+        away_sp_era_val = away_sp_detail.get("era", 4.5) or 4.5
+        home_sp_era_val = home_sp_detail.get("era", 4.5) or 4.5
+
+        away_cold_bp_boost = (away_trend == "cold" and away_sp_era_val >= COLD_SP_ERA_THRESHOLD)
+        home_cold_bp_boost = (home_trend == "cold" and home_sp_era_val >= COLD_SP_ERA_THRESHOLD)
+
+        if away_cold_bp_boost:
+            print(f"    [🔧 Cold불펜보정] {away_name} SP Cold+ERA {away_sp_era_val:.2f} → 수비력 계산 BP 비중 {COLD_BP_WEIGHT:.0%}")
+        if home_cold_bp_boost:
+            print(f"    [🔧 Cold불펜보정] {home_name} SP Cold+ERA {home_sp_era_val:.2f} → 수비력 계산 BP 비중 {COLD_BP_WEIGHT:.0%}")
+
         # ── 9. 예상 득점 ──────────────────────────────────────────────
-        away_def_s = (away_sp_s + away_bp_s) / 2
-        home_def_s = (home_sp_s + home_bp_s) / 2
+        if away_cold_bp_boost:
+            away_def_s = away_sp_s * COLD_SP_WEIGHT + away_bp_s * COLD_BP_WEIGHT
+        else:
+            away_def_s = (away_sp_s + away_bp_s) / 2
+
+        if home_cold_bp_boost:
+            home_def_s = home_sp_s * COLD_SP_WEIGHT + home_bp_s * COLD_BP_WEIGHT
+        else:
+            home_def_s = (home_sp_s + home_bp_s) / 2
 
         exp_away = _expected_runs(away_bat_s, home_def_s, 0.0)
         exp_home = _expected_runs(home_bat_s, away_def_s, 0.05)  # 홈 미세 보정
