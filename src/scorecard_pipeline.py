@@ -508,6 +508,31 @@ def run(game_date: Optional[str] = None) -> list:
             away_bat_s = min(100.0, away_bat_s + SP_ERA_RISK_BAT_BONUS)
             print(f"    [ERA위험] {home_name} 선발 ERA {home_sp_era} → {away_name} 타선 +{SP_ERA_RISK_BAT_BONUS}pt")
 
+        # ── [Option C] 타선-투수 교차 보정 ────────────────────────────
+        # 타선이 약한 팀(bat < 30)은 투수진 점수를 비례 감산
+        # "타선 없이 투수만으로는 이길 수 없다" — 야구 현실 반영
+        BAT_DEF_CROSS_THRESHOLD = 30.0
+        BAT_DEF_EFF_FLOOR       = 0.80   # bat=0일 때 투수 80% 효율
+
+        def _def_eff(bat_s: float) -> float:
+            if bat_s >= BAT_DEF_CROSS_THRESHOLD:
+                return 1.0
+            return BAT_DEF_EFF_FLOOR + (1.0 - BAT_DEF_EFF_FLOOR) * (bat_s / BAT_DEF_CROSS_THRESHOLD)
+
+        away_eff = _def_eff(away_bat_s)
+        home_eff = _def_eff(home_bat_s)
+
+        if away_eff < 1.0:
+            orig_away_sp_s, orig_away_bp_s = away_sp_s, away_bp_s
+            away_sp_s = round(away_sp_s * away_eff, 1)
+            away_bp_s = round(away_bp_s * away_eff, 1)
+            print(f"    [교차보정C] {away_name} bat={away_bat_s:.1f} eff={away_eff:.3f} | SP {orig_away_sp_s}→{away_sp_s} BP {orig_away_bp_s}→{away_bp_s}")
+        if home_eff < 1.0:
+            orig_home_sp_s, orig_home_bp_s = home_sp_s, home_bp_s
+            home_sp_s = round(home_sp_s * home_eff, 1)
+            home_bp_s = round(home_bp_s * home_eff, 1)
+            print(f"    [교차보정C] {home_name} bat={home_bat_s:.1f} eff={home_eff:.3f} | SP {orig_home_sp_s}→{home_sp_s} BP {orig_home_bp_s}→{home_bp_s}")
+
         # ── 5. 스코어카드 종합 ────────────────────────────────────────
         # 선발 Cold 패턴에 따른 동적 가중치 조정
         away_trend = away_sp_detail.get("trend", "stable")
