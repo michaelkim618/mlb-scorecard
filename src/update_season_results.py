@@ -329,6 +329,34 @@ def update():
     OUT_FILE.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"💾 저장됨: {OUT_FILE}")
 
+    # ── predictions.json에도 actual_winner / model_correct 반영 ──
+    # SeasonStats UI가 predictions.json의 model_correct를 직접 읽으므로
+    # 오늘 경기 결과를 predictions.json에도 업데이트해야 "Today's Results"가 실시간 반영됨
+    pred_web = WEB_REPO / "public" / "predictions.json"
+    if pred_web.exists() and api_results:
+        try:
+            pred_data = json.loads(pred_web.read_text(encoding="utf-8"))
+            updated_count = 0
+            for g in pred_data:
+                if g.get("date", "") != today_str:
+                    continue
+                api_key = f"{g.get('away','')}|{g.get('home','')}"
+                if api_key not in api_results:
+                    continue
+                actual_winner = api_results[api_key]
+                if g.get("actual_winner") == actual_winner:
+                    continue  # 이미 최신
+                g["actual_winner"] = actual_winner
+                pick = g.get("model_winner") or ""
+                g["model_correct"] = (pick == actual_winner) if pick else None
+                # actual_score는 MLB API 점수 조회 없이 winner만 반영
+                updated_count += 1
+            if updated_count > 0:
+                pred_web.write_text(json.dumps(pred_data, indent=2, ensure_ascii=False), encoding="utf-8")
+                print(f"📝 predictions.json 결과 반영: {updated_count}경기 업데이트")
+        except Exception as e:
+            print(f"⚠️ predictions.json 업데이트 실패: {e}")
+
 
 if __name__ == "__main__":
     update()
