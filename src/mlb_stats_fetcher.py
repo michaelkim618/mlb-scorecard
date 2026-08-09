@@ -93,6 +93,95 @@ def get_team_pitching_log(team_id: int, limit: int = 10) -> list:
     return [s["stat"] for s in splits[:limit]]
 
 
+# ─── 팀 불펜 직접 스탯 (Option 2) ───────────────────────────────────
+
+def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
+    """
+    팀 활성 로스터에서 투수를 가져와 gamesStarted 기준으로
+    선발/불펜 분리 → 불펜 실제 시즌 ERA 계산
+
+    starter_gs_threshold: 이 이상 선발 등판하면 '선발'로 분류 (기본 5)
+    Returns:
+        {
+          "bullpen_era": float,   # 불펜 합산 ERA
+          "team_era":   float,   # 팀 전체 ERA (참고용)
+          "bp_ip":      float,   # 불펜 이닝
+          "bp_count":   int,     # 불펜 투수 수
+        }
+    """
+    # 1. 활성 로스터에서 투수 목록 가져오기
+    try:
+        roster_data = _get(f"{BASE}/teams/{team_id}/roster", {
+            "rosterType": "active",
+            "season": SEASON,
+        })
+    except Exception:
+        return {"bullpen_era": 4.00, "team_era": 4.00, "bp_ip": 0.0, "bp_count": 0}
+
+    roster = roster_data.get("roster", [])
+    pitcher_ids = [
+        p["person"]["id"]
+        for p in roster
+        if p.get("position", {}).get("type") == "Pitcher"
+    ]
+
+    if not pitcher_ids:
+        return {"bullpen_era": 4.00, "team_era": 4.00, "bp_ip": 0.0, "bp_count": 0}
+
+    # 2. 각 투수 시즌 스탯 조회 & 선발/불펜 분류
+    bp_ip = 0.0
+    bp_er = 0.0
+    all_ip = 0.0
+    all_er = 0.0
+    bp_count = 0
+
+    def _parse_ip(ip_str) -> float:
+        try:
+            s = str(ip_str)
+            if '.' in s:
+                full, thirds = s.split('.')
+                return int(full) + int(thirds) / 3.0
+            return float(s)
+        except Exception:
+            return 0.0
+
+    for pid in pitcher_ids:
+        try:
+            data = _get(f"{BASE}/people/{pid}/stats", {
+                "stats": "season",
+                "group": "pitching",
+                "season": SEASON,
+                "gameType": "R",
+            })
+            splits = data.get("stats", [{}])[0].get("splits", [])
+            if not splits:
+                continue
+            s = splits[0]["stat"]
+            gs  = int(s.get("gamesStarted", 0) or 0)
+            ip  = _parse_ip(s.get("inningsPitched", "0"))
+            er  = float(s.get("earnedRuns", 0) or 0)
+
+            all_ip += ip
+            all_er += er
+
+            if gs < starter_gs_threshold:   # 불펜 투수
+                bp_ip += ip
+                bp_er += er
+                bp_count += 1
+        except Exception:
+            continue
+
+    bullpen_era = round(bp_er / bp_ip * 9, 2) if bp_ip > 0 else 4.00
+    team_era    = round(all_er / all_ip * 9, 2) if all_ip > 0 else 4.00
+
+    return {
+        "bullpen_era": bullpen_era,
+        "team_era":    team_era,
+        "bp_ip":       round(bp_ip, 1),
+        "bp_count":    bp_count,
+    }
+
+
 # ─── 선발투수 개인 스탯 ──────────────────────────────────────────────
 
 def get_pitcher_gamelog(pitcher_id: int, limit: int = 6) -> list:

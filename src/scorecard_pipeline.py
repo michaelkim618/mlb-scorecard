@@ -19,9 +19,9 @@ from mlb_schedule         import get_games
 from mlb_stats_fetcher    import (get_team_hitting_log, get_team_hitting_log_split,
                                    get_team_pitching_log,
                                    get_pitcher_gamelog, get_pitcher_season,
-                                   get_standings_map)
+                                   get_standings_map, get_bullpen_era_direct)
 from pitcher_recent_score import analyze_pitcher_recent, pitcher_score, _default_pitcher
-from bullpen_score        import analyze_bullpen, bullpen_score, _default_bullpen
+from bullpen_score        import bullpen_score, _default_bullpen
 from batting_score_v2     import (analyze_batting, analyze_lineup_batting,
                                    analyze_lineup_batting_with_splits,
                                    batting_score, _default_batting)
@@ -350,12 +350,9 @@ def run(game_date: Optional[str] = None) -> list:
         print(f"    [선발] {away_name} {away_pitcher}{tbd_tag_away}: ERA {away_sp_detail['era']} WHIP {away_sp_detail['whip']} trend={away_sp_detail['trend']}{_sp_note(away_sp_detail)} → {away_sp_s}점")
         print(f"    [선발] {home_name} {home_pitcher}{tbd_tag_home}: ERA {home_sp_detail['era']} WHIP {home_sp_detail['whip']} trend={home_sp_detail['trend']}{_sp_note(home_sp_detail)} → {home_sp_s}점")
 
-        # ── 2. 불펜 분석 ──────────────────────────────────────────────
-        away_ptch_log = _safe(lambda aid=away_id: get_team_pitching_log(aid, 10), [], "원정 투구로그")
-        home_ptch_log = _safe(lambda hid=home_id: get_team_pitching_log(hid, 10), [], "홈 투구로그")
-
-        away_bp_detail = analyze_bullpen(away_ptch_log, away_sp_detail.get("avg_ip", 5.5))
-        home_bp_detail = analyze_bullpen(home_ptch_log, home_sp_detail.get("avg_ip", 5.5))
+        # ── 2. 불펜 분석 (Option 2: 실제 불펜 투수 시즌 ERA 직접 계산) ──
+        away_bp_detail = _safe(lambda aid=away_id: get_bullpen_era_direct(aid), _default_bullpen(), "원정 불펜ERA")
+        home_bp_detail = _safe(lambda hid=home_id: get_bullpen_era_direct(hid), _default_bullpen(), "홈 불펜ERA")
 
         away_bp_s = bullpen_score(away_bp_detail)
         home_bp_s = bullpen_score(home_bp_detail)
@@ -366,7 +363,7 @@ def run(game_date: Optional[str] = None) -> list:
             home_bp_s = max(0.0, home_bp_s - WED_BP_PENALTY)
             print(f"    [수요일패널티] 불펜 각 -{WED_BP_PENALTY}pt 적용 (시리즈 마지막날 소진 리스크)")
 
-        print(f"    [불펜] {away_name}: ERA {away_bp_detail['bullpen_era']} → {away_bp_s}점 | {home_name}: ERA {home_bp_detail['bullpen_era']} → {home_bp_s}점")
+        print(f"    [불펜] {away_name}: ERA {away_bp_detail['bullpen_era']} ({away_bp_detail.get('bp_count',0)}명) → {away_bp_s}점 | {home_name}: ERA {home_bp_detail['bullpen_era']} ({home_bp_detail.get('bp_count',0)}명) → {home_bp_s}점")
 
         # ── 3. 타선 분석 ─────────────────────────────────────────────
         #   우선순위: ① 확정 라인업+시즌OPS  ② 전날 라인업+LHP/RHP스플릿  ③ 팀통계
