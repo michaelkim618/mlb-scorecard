@@ -620,6 +620,20 @@ def run(game_date: Optional[str] = None) -> list:
                     home_win_pct = round(100.0 - away_win_pct, 1)
                     print(f"    [SP과신보정] 어웨이SP 압도적 우세({sp_diff:.0f}pt)지만 불펜/타선 열세 → 어웨이 -{SP_OVERCONF_PENALTY}% 보정")
 
+        # ── 7.9 Option B: 타선 약팀 승률 상한 캡 ────────────────────────
+        # 타선이 극도로 약한 팀(Bat < 28)이 픽으로 선택될 경우 승률 62%로 제한
+        # 불펜이 좋아도 점수를 못 내면 65%+ 확률은 과신
+        WEAK_BAT_THRESHOLD = 28.0
+        WEAK_BAT_CAP       = 62.0
+        if away_win_pct > WEAK_BAT_CAP and away_bat_s < WEAK_BAT_THRESHOLD:
+            away_win_pct = WEAK_BAT_CAP
+            home_win_pct = round(100.0 - away_win_pct, 1)
+            print(f"    [타선약팀캡] {away_name} 타선 약(bat={away_bat_s:.1f}) → 승률 {WEAK_BAT_CAP}%로 제한")
+        elif home_win_pct > WEAK_BAT_CAP and home_bat_s < WEAK_BAT_THRESHOLD:
+            home_win_pct = WEAK_BAT_CAP
+            away_win_pct = round(100.0 - home_win_pct, 1)
+            print(f"    [타선약팀캡] {home_name} 타선 약(bat={home_bat_s:.1f}) → 승률 {WEAK_BAT_CAP}%로 제한")
+
         # ── 8. 최종 하드캡 (상대팀 강도 반영 동적 캡) ───────────────
         # 수요일은 별도 낮은 캡 적용
         if is_wednesday and WED_ENABLED:
