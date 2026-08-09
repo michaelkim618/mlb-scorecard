@@ -89,6 +89,15 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
     l5_games  = len(last5)
     l5_avg_ip = round(l5_ip / l5_games, 1) if l5_games > 0 else 0.0
 
+    # 직전 마지막 등판 ERA (1경기) — 최신 경향 포착용
+    last1 = logs[-1] if logs else None
+    if last1:
+        last1_ip = _ip_to_float(last1.get("inningsPitched", "0"))
+        last1_er = float(last1.get("earnedRuns", 0) or 0)
+        last_start_era = round(last1_er / last1_ip * 9, 2) if last1_ip > 0 else 0.0
+    else:
+        last_start_era = None
+
     # 트렌드 판정 (절대 ERA 기준)
     if l5_avg_ip < 3.0:
         trend = "cold"   # 조기강판 반복
@@ -98,6 +107,14 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
         trend = "stable" # ERA 3.0~4.0 = 평균
     else:
         trend = "cold"   # ERA 4.0 이상 = 불안정
+
+    # 직전 등판 경보: Hot/Stable이어도 마지막 1경기 ERA >= 7.0이면 위험 신호
+    # (5경기 평균이 희석시키는 최근 나쁜 등판 포착)
+    recent_bad_start = (
+        trend in ("hot", "stable")
+        and last_start_era is not None
+        and last_start_era >= 7.0
+    )
 
     # ── 샘플 신뢰도 ──────────────────────────────────────────────────
     # n_games < 5: 소수 샘플 → ERA 신뢰도 낮음, 기본값 방향으로 회귀
@@ -128,7 +145,9 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
         "k9":               k9,
         "avg_ip":           avg_ip,
         "qs_rate":          qs_rate,
-        "last3_era":        last5_era,   # 대시보드 표시용 (필드명 유지)
+        "last3_era":        last5_era,       # 대시보드 표시용 (필드명 유지)
+        "last_start_era":   last_start_era,  # 직전 마지막 등판 ERA
+        "recent_bad_start": recent_bad_start,# Hot/Stable인데 직전 ERA >= 7.0
         "trend":            trend,
         "n_games":          n_games,
         "sample_confidence": sample_confidence,
@@ -159,6 +178,7 @@ def pitcher_score(stats: dict, season_era: float = None) -> float:
     trend  = stats.get("trend",   "stable")
     conf   = stats.get("sample_confidence", 1.0)
     rest_note = stats.get("rest_note")
+    recent_bad_start = stats.get("recent_bad_start", False)
 
     # 0~100 정규화
     era_s  = max(0.0, min(100.0, (7.5 - era)    / 7.5  * 100.0))
@@ -175,11 +195,16 @@ def pitcher_score(stats: dict, season_era: float = None) -> float:
 
     # 트렌드 보정 (완화된 값)
     # hot: +3pt (이전 +6pt) | cold: -8pt (이전 -14pt) | neutral: 보정 없음
-    if trend == "hot":
+    if trend == "hot" and not recent_bad_start:
         score = min(100.0, score + 3.0)
     elif trend == "cold":
         score = max(0.0,   score - 8.0)
     # neutral (장기 휴식 복귀): trend 보정 없음 → 최근 기록 그대로 반영
+
+    # 직전 등판 경보 페널티: Hot/Stable인데 마지막 등판 ERA >= 7.0
+    # 5경기 평균이 좋아도 최근 1경기가 나쁘면 위험 신호 반영
+    if recent_bad_start:
+        score = max(0.0, score - 7.0)
 
     # 휴식일 보정
     if rest_note == "short_rest":
