@@ -2,8 +2,11 @@ name: MLB Scorecard Daily Auto Post
 
 on:
   schedule:
-    # ── 00:01 AM PST: 당일 경기 예측 & 홈페이지 초기 업데이트 ──
-    - cron: '1 8 * * *'    # 00:01 PST — daily_init (예측만, 포스팅 없음)
+    # ── 00:01 AM LA시간: 당일 경기 예측 & 홈페이지 초기 업데이트 ──
+    # DST 대응: PST(겨울)=UTC-8 → 8:01 UTC, PDT(여름)=UTC-7 → 7:01 UTC
+    # 두 크론 모두 등록, 스크립트에서 LA시간 00시인 경우만 daily_init 실행
+    - cron: '1 7 * * *'    # 00:01 PDT (여름) — daily_init
+    - cron: '1 8 * * *'    # 00:01 PST (겨울) — daily_init
 
     # ── 30분 간격 실행 (PST 오전 6시 ~ 자정) ──
     # PST = UTC-8, 따라서:
