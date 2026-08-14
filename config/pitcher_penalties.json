@@ -1,69 +1,77 @@
 {
-  "_comment": "특정 투수가 선발로 나올 때 해당 팀 승률에 패널티 적용. penalty는 승률에서 차감 (음수=불리, 양수=유리)",
+  "_comment": "특정 투수가 선발로 나올 때 해당 팀 승률에 패널티 적용. penalty는 승률에서 차감 (음수=불리, 양수=유리). 최근 성적이 회복되어도 명시적으로 해제하기 전까지 유지.",
   "pitchers": [
     {
       "pitcher_id": 527048,
       "pitcher_name": "Martín Pérez",
       "team": "Atlanta Braves",
-      "penalty": -10.0,
-      "reason": "최근 등판 시 ATL 패배 확률 높음 — 6/30 STL전 4실점, 7/5 NYM전 4실점 등 불안정한 최근 폼",
-      "added_date": "2026-07-05"
+      "penalty": -8.0,
+      "reason": "제구형 저구속 투수 — 6/30 STL전 4실점, 7/5 NYM전 4실점 등 강타선 상대 불안정. 최근 회복세나 패널티 유지.",
+      "added_date": "2026-07-05",
+      "last_reviewed": "2026-08-11"
     },
     {
       "pitcher_id": 471911,
       "pitcher_name": "Carlos Carrasco",
       "team": "Atlanta Braves",
       "penalty": -10.0,
-      "reason": "최근 등판 시 ATL 패배 확률 높음 — ERA 5.94, 7/5 NYM전 2이닝 5실점 등 극도로 불안정한 폼, W0L0",
-      "added_date": "2026-07-05"
+      "reason": "ERA 5.94, 7/5 NYM전 2이닝 5실점. 마이너 강등 상태 — 콜업 시 즉시 패널티 적용.",
+      "added_date": "2026-07-05",
+      "last_reviewed": "2026-08-11"
     },
     {
       "pitcher_id": 623211,
       "pitcher_name": "Huascar Brazobán",
-      "team": "New York Mets",
-      "penalty": -10.0,
-      "reason": "최근 등판 시 NYM 패배 확률 높음 — 7/5 ATL전 0.1이닝 5실점 조기강판, 시즌 ERA 3.00이나 최근 급격한 폼 하락",
-      "added_date": "2026-07-05"
+      "team": "Chicago White Sox",
+      "penalty": -8.0,
+      "reason": "NYM→CWS 이적. 7/5 ATL전 0.1이닝 5실점 조기강판 이력. 이적 후 ERA 개선됐으나 패널티 유지.",
+      "added_date": "2026-07-05",
+      "last_reviewed": "2026-08-11"
     },
     {
       "pitcher_id": 807743,
       "pitcher_name": "Sean Sullivan",
       "team": "Colorado Rockies",
       "penalty": -10.0,
-      "reason": "메이저리그 수준 미달 — ERA 8.87, WHIP 2.01, 피안타율 .343, 5경기 연속 대량실점 (7/4 SF전 12피안타 6실점 포함)",
-      "added_date": "2026-07-05"
+      "reason": "메이저리그 수준 미달 — ERA 8.87, WHIP 2.01, 피안타율 .343, 5경기 연속 대량실점.",
+      "added_date": "2026-07-05",
+      "last_reviewed": "2026-08-11"
     },
     {
       "pitcher_id": 677960,
       "pitcher_name": "Ryan Weathers",
       "team": "New York Yankees",
-      "penalty": -10.0,
-      "reason": "시즌 3승 7패로 패배 과다 — 7/5 MIN전 4이닝 4실점, 6/12 6실점, 6/29 1.2이닝 조기강판 등 불안정한 등판 반복",
-      "added_date": "2026-07-05"
-    },
-    {
-      "pitcher_id": 676917,
-      "pitcher_name": "Cade Cavalli",
-      "team": "Washington Nationals",
-      "penalty": -10.0,
-      "reason": "최근 조기강판 반복 — 7/5 PIT전 2.1이닝 3실점(팀 11실점 패배), 6/20 2.2이닝 조기강판 등 짧은 이닝 패턴",
-      "added_date": "2026-07-05"
+      "penalty": -7.0,
+      "reason": "시즌 3승7패 패배 과다 이력. 최근 ERA 3.79로 회복세나 패널티 유지. 강타선 상대 시 리스크.",
+      "added_date": "2026-07-05",
+      "last_reviewed": "2026-08-11"
     },
     {
       "pitcher_id": 694462,
       "pitcher_name": "Hurston Waldrep",
       "team": "Atlanta Braves",
       "penalty": -10.0,
-      "reason": "ERA 8.44, WHIP 2.16, 제구 붕괴 수준 — 3경기 10.2이닝 BB 10개, 7/7 PIT전 3.1이닝 7실점 5볼넷 완전 붕괴. 등판할수록 악화되는 추세",
-      "added_date": "2026-07-08"
+      "reason": "ERA 8.44, WHIP 2.16, 제구 붕괴 — 현재 마이너(Gwinnett). 콜업 시 즉시 패널티 적용.",
+      "added_date": "2026-07-08",
+      "last_reviewed": "2026-08-11"
     },
     {
       "pitcher_id": 625643,
       "pitcher_name": "Reynaldo López",
       "team": "Atlanta Braves",
-      "penalty": -10.0,
-      "reason": "최근 3경기 ERA 10.80, 평균 이닝 3.1으로 조기강판 반복, QS율 0% — 7/21 SD전 4.1이닝 5자책 9피안타 3볼넷 붕괴, 7/11 STL전 5이닝 4자책 등 하락세 뚜렷",
-      "added_date": "2026-07-21"
+      "penalty": -8.0,
+      "reason": "최근 3경기 ERA 10.80 이력. 최근 회복세(ERA 3.64)나 패널티 유지. 강타선 상대 주의.",
+      "added_date": "2026-07-21",
+      "last_reviewed": "2026-08-11"
+    },
+    {
+      "pitcher_id": 693821,
+      "pitcher_name": "Bryce Elder",
+      "team": "Atlanta Braves",
+      "penalty": -8.0,
+      "reason": "저구속 제구형(패스트볼 88~89mph, K/9 7.38) — 강타선 상대 시 위협 부재. 8/10 NYM전 5IP 7ER 10피안타 붕괴. 약팀(MIA/WSH/BAL) 상대 최근 호투는 착시.",
+      "added_date": "2026-08-11",
+      "last_reviewed": "2026-08-11"
     }
   ],
   "watch_list": [
@@ -71,7 +79,7 @@
       "pitcher_id": 656844,
       "pitcher_name": "Cristopher Sánchez",
       "team": "Philadelphia Phillies",
-      "watch_reason": "좌완 투수 — 상대팀 우타자 비중이 높을 경우 붕괴 위험. 7/6 KC전 대량실점 조기강판 사례 있음. 다음 등판 시 상대 타선 좌/우 구성 확인 필요.",
+      "watch_reason": "좌완 저구속 투수 — 상대팀 우타자 비중 높을 경우 붕괴 위험. 7/6 KC전 대량실점 조기강판 이력.",
       "flag": "check_rhb",
       "added_date": "2026-07-06"
     }
