@@ -30,6 +30,10 @@ def _calc_hitting_stats(logs: list, season_stats: dict = None) -> dict:
         season_avg = float(season_stats.get("avg", "0.250") or 0.250)
     except Exception:
         season_avg = 0.250
+    try:
+        season_slg = float(season_stats.get("slg", 0.400) or 0.400)
+    except Exception:
+        season_slg = 0.400
 
     return {
         "recent_avg":      recent_avg,
@@ -38,6 +42,7 @@ def _calc_hitting_stats(logs: list, season_stats: dict = None) -> dict:
         "bb_per_g":        bb_per_g,
         "season_ops":      season_ops,
         "season_avg":      season_avg,
+        "season_slg":      season_slg,
         "n_games":         n,
         "explosive_games": explosive_games,
     }
@@ -76,20 +81,36 @@ def analyze_batting(hit_logs: list, season_stats: dict = None,
 def batting_score(stats: dict) -> float:
     """
     타선 통계 → 0~100 점수
-    시즌 OPS 25% + 최근 타율 35% + 득점/경기 30% + HR/경기 10%
-    (v2: runs_per_g 25%→30%, season_ops 30%→25% — 실제 득점력 반영 강화)
+
+    v3 가중치 (개선 #1: SLG 장타율 독립 반영):
+      시즌 OPS  20% (기존 25%→20%)
+      시즌 SLG  15% (신규 — 장타 폭발력 반영)
+      최근 AVG  30% (기존 35%→30%)
+      득점/경기 25% (기존 30%→25%)
+      HR/경기   10% (유지)
+
+    SLG 추가 이유:
+      OPS에 SLG가 포함되지만, 독립 변수로 따로 주면
+      BAL/SD 같은 "저타율인데 장타 폭발" 팀을 더 잘 포착.
+      오늘 BAL bat=16pt(AVG 낮음)인데 10득점 → SLG가 핵심.
     """
     ops  = stats.get("season_ops", 0.720)
+    slg  = stats.get("season_slg", 0.400)
     ravg = stats.get("recent_avg", 0.250)
     rpg  = stats.get("runs_per_g", 4.3)
     hr   = stats.get("hr_per_g",   1.1)
 
     ops_s  = max(0.0, min(100.0, (ops  - 0.600) / 0.350 * 100.0))
+    slg_s  = max(0.0, min(100.0, (slg  - 0.300) / 0.300 * 100.0))  # 0.300~0.600 범위
     ravg_s = max(0.0, min(100.0, (ravg - 0.200) / 0.160 * 100.0))
     rpg_s  = max(0.0, min(100.0, (rpg  - 2.0)   / 6.0   * 100.0))
     hr_s   = max(0.0, min(100.0, (hr   - 0.3)   / 2.2   * 100.0))
 
-    score = ops_s * 0.25 + ravg_s * 0.35 + rpg_s * 0.30 + hr_s * 0.10
+    score = (ops_s  * 0.20 +
+             slg_s  * 0.15 +
+             ravg_s * 0.30 +
+             rpg_s  * 0.25 +
+             hr_s   * 0.10)
 
     # 폭발 지표 보너스: 7점+ 경기 2회 이상이면 +3pt, 3회 이상이면 +5pt
     explosive = stats.get("explosive_games", 0)
@@ -112,9 +133,10 @@ def analyze_lineup_batting(players: list, team_hit_logs: list = None) -> dict:
     """
     from batter_stats import analyze_batter
 
-    ops_list  = []
-    avg_list  = []
-    names     = []
+    ops_list       = []
+    avg_list       = []
+    names          = []
+    lineup_players = []   # [{id, name, ops, avg}] — Hero 선수 선정용
 
     for p in players:
         pid = p.get("id")
@@ -124,6 +146,12 @@ def analyze_lineup_batting(players: list, team_hit_logs: list = None) -> dict:
         ops_list.append(b["blended_ops"])
         avg_list.append(b["recent_avg"])
         names.append(f"{p.get('name','?')}({b['blended_ops']:.3f})")
+        lineup_players.append({
+            "id":   pid,
+            "name": p.get("name", "?"),
+            "ops":  b["blended_ops"],
+            "avg":  b["recent_avg"],
+        })
 
     if not ops_list:
         return _default_batting()
@@ -143,16 +171,23 @@ def analyze_lineup_batting(players: list, team_hit_logs: list = None) -> dict:
         runs_per_g = 4.3
         hr_per_g   = 1.1
 
+    # SLG: 라인업 개인 통계에서 직접 계산 (analyze_batter 이미 호출했으므로 재사용)
+    slg_list = [b["season_slg"] for p in players
+                if (pid := p.get("id")) and (b := analyze_batter(pid))]
+    avg_slg = round(sum(slg_list) / len(slg_list), 3) if slg_list else 0.400
+
     return {
-        "recent_avg":   avg_recent,
-        "runs_per_g":   runs_per_g,
-        "hr_per_g":     hr_per_g,
-        "bb_per_g":     3.0,
-        "season_ops":   avg_ops,
-        "season_avg":   avg_recent,
-        "n_games":      len(players),
-        "source":       "lineup",
-        "lineup_ops":   names,   # 디버그용 타자별 OPS
+        "recent_avg":      avg_recent,
+        "runs_per_g":      runs_per_g,
+        "hr_per_g":        hr_per_g,
+        "bb_per_g":        3.0,
+        "season_ops":      avg_ops,
+        "season_avg":      avg_recent,
+        "season_slg":      avg_slg,
+        "n_games":         len(players),
+        "source":          "lineup",
+        "lineup_ops":      names,
+        "lineup_players":  lineup_players,  # Hero 선수 선정용
     }
 
 
@@ -170,9 +205,10 @@ def analyze_lineup_batting_with_splits(
     """
     from batter_stats import analyze_batter_with_splits
 
-    ops_list  = []
-    avg_list  = []
-    names     = []
+    ops_list       = []
+    avg_list       = []
+    names          = []
+    lineup_players = []   # [{id, name, ops, avg}] — Hero 선수 선정용
 
     for p in players:
         pid = p.get("id")
@@ -182,6 +218,12 @@ def analyze_lineup_batting_with_splits(
         ops_list.append(b["blended_ops"])
         avg_list.append(b["recent_avg"])
         names.append(f"{p.get('name','?')}({b['blended_ops']:.3f})")
+        lineup_players.append({
+            "id":   pid,
+            "name": p.get("name", "?"),
+            "ops":  b["blended_ops"],
+            "avg":  b["recent_avg"],
+        })
 
     if not ops_list:
         return _default_batting()
@@ -207,17 +249,18 @@ def analyze_lineup_batting_with_splits(
     splits_used = sample.get("split_source") is not None
 
     return {
-        "recent_avg":   avg_recent,
-        "runs_per_g":   runs_per_g,
-        "hr_per_g":     hr_per_g,
-        "bb_per_g":     3.0,
-        "season_ops":   avg_ops,
-        "season_avg":   avg_recent,
-        "n_games":      len(players),
-        "source":       "prev_day_splits" if splits_used else "prev_day",
-        "handedness":   opp_handedness,
-        "splits_used":  splits_used,
-        "lineup_ops":   names,   # 디버그용 타자별 OPS
+        "recent_avg":      avg_recent,
+        "runs_per_g":      runs_per_g,
+        "hr_per_g":        hr_per_g,
+        "bb_per_g":        3.0,
+        "season_ops":      avg_ops,
+        "season_avg":      avg_recent,
+        "n_games":         len(players),
+        "source":          "prev_day_splits" if splits_used else "prev_day",
+        "handedness":      opp_handedness,
+        "splits_used":     splits_used,
+        "lineup_ops":      names,
+        "lineup_players":  lineup_players,  # Hero 선수 선정용
     }
 
 

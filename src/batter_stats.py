@@ -52,6 +52,10 @@ def analyze_batter(player_id: int) -> dict:
         season_avg = float(raw_avg)
     except Exception:
         season_avg = 0.250
+    try:
+        season_slg = float(season.get("slg", 0.400) or 0.400)
+    except Exception:
+        season_slg = 0.400
 
     # ── 최근 10경기 OPS 계산 ──────────────────────────────────────────
     total_ab = total_h = total_bb = total_tb = total_pa = 0
@@ -79,6 +83,7 @@ def analyze_batter(player_id: int) -> dict:
         "player_id":   player_id,
         "season_ops":  round(season_ops, 3),
         "season_avg":  round(season_avg, 3),
+        "season_slg":  round(season_slg, 3),
         "recent_ops":  recent_ops,
         "recent_avg":  recent_avg,
         "blended_ops": blended_ops,
