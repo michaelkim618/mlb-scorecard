@@ -1,0 +1,94 @@
+name: MLB API Health Check
+
+on:
+  schedule:
+    - cron: '0 15 * * *'   # 매일 08:00 PDT (UTC-7 여름)
+    - cron: '0 16 * * *'   # 매일 08:00 PST (UTC-8 겨울)
+  workflow_dispatch:        # 수동 실행 가능
+
+jobs:
+  health_check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 웹 레포 체크아웃
+        uses: actions/checkout@v4
+        with:
+          repository: michaelkim618/mlb-scorecard-web
+          token: ${{ secrets.WEB_REPO_PAT }}
+          path: mlb-scorecard-web
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: requests 설치
+        run: pip install requests
+
+      - name: MLB API 헬스체크 실행
+        id: health
+        run: |
+          python3 - <<'EOF'
+          import requests, json, sys
+          from datetime import datetime, timezone
+
+          result = {
+              "checked_at": datetime.now(timezone.utc).isoformat(),
+              "endpoints": {},
+              "overall": "ok"
+          }
+
+          endpoints = [
+              ("schedule", "https://statsapi.mlb.com/api/v1/schedule?sportId=1&season=2026"),
+              ("teams",    "https://statsapi.mlb.com/api/v1/teams?sportId=1&season=2026"),
+              ("people",   "https://statsapi.mlb.com/api/v1/people/543037/stats?stats=season&group=pitching&season=2026"),
+          ]
+
+          all_ok = True
+          for name, url in endpoints:
+              try:
+                  r = requests.get(url, timeout=10)
+                  ok = r.status_code == 200
+                  result["endpoints"][name] = {
+                      "ok": ok,
+                      "status": r.status_code,
+                      "latency_ms": round(r.elapsed.total_seconds() * 1000)
+                  }
+                  if not ok:
+                      all_ok = False
+              except Exception as e:
+                  result["endpoints"][name] = {"ok": False, "status": 0, "error": str(e)}
+                  all_ok = False
+
+          result["overall"] = "ok" if all_ok else "degraded"
+
+          # 결과 저장
+          with open("mlb-scorecard-web/public/api_health.json", "w") as f:
+              json.dump(result, f, indent=2)
+
+          # 출력
+          print(json.dumps(result, indent=2))
+
+          # GitHub Actions 출력 변수 설정
+          with open("/tmp/health_status", "w") as f:
+              f.write(result["overall"])
+
+          if not all_ok:
+              print("\n❌ MLB API 이상 감지 — 확인 필요!")
+              failed = [n for n, v in result["endpoints"].items() if not v["ok"]]
+              print(f"  실패 엔드포인트: {', '.join(failed)}")
+              sys.exit(1)  # 워크플로우 실패로 표시
+          else:
+              print("\n✅ MLB API 정상")
+          EOF
+
+      - name: 결과 웹 레포에 커밋 & 푸시
+        if: always()   # 실패해도 결과는 저장
+        working-directory: mlb-scorecard-web
+        run: |
+          git config user.name "MLB Health Bot"
+          git config user.email "bot@mlb-scorecard.com"
+          git add public/api_health.json
+          git diff --staged --quiet || git commit -m "🏥 API health check $(date +%Y-%m-%d)"
+          git push
