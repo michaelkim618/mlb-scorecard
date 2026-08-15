@@ -1,11 +1,71 @@
 """
 MLB Stats API 래퍼: 팀/선수 스탯 수집
+캐시 전략:
+  - 방향1: 당일 API 실패 시 전날 캐시 파일로 fallback (output/cache/)
+  - 방향3: 팀별 시즌 타선 DB를 로컬에 저장 (output/team_batting_season.json)
 """
+import json
+import os
+import glob
 import requests
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 
 BASE = "https://statsapi.mlb.com/api/v1"
 SEASON = "2026"
+
+# 캐시 디렉토리: scorecard_pipeline.py 기준 output/cache/
+_CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "output", "cache")
+_SEASON_DB  = os.path.join(os.path.dirname(__file__), "..", "output", "team_batting_season.json")
+
+
+def _ensure_cache_dir():
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+
+
+def _cache_path(key: str, today: str = None) -> str:
+    today = today or date.today().isoformat()
+    return os.path.join(_CACHE_DIR, f"{key}_{today}.json")
+
+
+def _save_cache(key: str, data, today: str = None):
+    _ensure_cache_dir()
+    path = _cache_path(key, today)
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+
+def _load_cache(key: str, max_days: int = 3):
+    """오늘부터 max_days일 이내 가장 최신 캐시 파일 로드"""
+    _ensure_cache_dir()
+    today = date.today()
+    for delta in range(max_days + 1):
+        d = (today - timedelta(days=delta)).isoformat()
+        path = _cache_path(key, d)
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    return json.load(f), d
+            except Exception:
+                continue
+    return None, None
+
+
+def _load_season_db() -> dict:
+    if os.path.exists(_SEASON_DB):
+        try:
+            with open(_SEASON_DB) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_season_db(db: dict):
+    _ensure_cache_dir()
+    os.makedirs(os.path.dirname(_SEASON_DB), exist_ok=True)
+    with open(_SEASON_DB, "w") as f:
+        json.dump(db, f, indent=2)
 
 
 def _get(url: str, params: dict = None) -> dict:
@@ -17,66 +77,131 @@ def _get(url: str, params: dict = None) -> dict:
 # ─── 팀 타격 게임로그 ────────────────────────────────────────────────
 
 def get_team_hitting_log(team_id: int, limit: int = 10) -> list:
-    """최근 N경기 팀 타격 스탯 리스트 (최신순)"""
-    data = _get(f"{BASE}/teams/{team_id}/stats", {
-        "stats": "gameLog",
-        "group": "hitting",
-        "season": SEASON,
-        "limit": limit,
-    })
-    splits = data.get("stats", [{}])[0].get("splits", [])
-    return [s["stat"] for s in splits[:limit]]
+    """최근 N경기 팀 타격 스탯 리스트 (최신순). API 실패 시 캐시 fallback."""
+    cache_key = f"hit_log_{team_id}_{limit}"
+    try:
+        data = _get(f"{BASE}/teams/{team_id}/stats", {
+            "stats": "gameLog",
+            "group": "hitting",
+            "season": SEASON,
+            "limit": limit,
+        })
+        splits = data.get("stats", [{}])[0].get("splits", [])
+        result = [s["stat"] for s in splits[:limit]]
+        if result:
+            _save_cache(cache_key, result)
+        return result
+    except Exception:
+        cached, cache_date = _load_cache(cache_key)
+        if cached:
+            print(f"  [캐시 fallback] hit_log team={team_id} ({cache_date})")
+            return cached
+        return []
 
 
 def get_team_hitting_log_split(team_id: int, n: int = 10) -> dict:
     """
-    홈/원정 분리 타격 게임로그 (각 최근 N경기)
+    홈/원정 분리 타격 게임로그 (각 최근 N경기). API 실패 시 캐시 fallback.
     Returns: {
         "home": [stat dict, ...],   # 최근 N홈경기 (최신순)
         "away": [stat dict, ...],   # 최근 N원정경기 (최신순)
         "all":  [stat dict, ...],   # 전체 최근 N경기
     }
     """
-    # 충분한 데이터를 가져오기 위해 더 많이 요청 (홈/원정 각 N경기 보장용)
-    fetch_limit = max(n * 4, 40)
-    data = _get(f"{BASE}/teams/{team_id}/stats", {
-        "stats": "gameLog",
-        "group": "hitting",
-        "season": SEASON,
-        "limit": fetch_limit,
-    })
-    splits = data.get("stats", [{}])[0].get("splits", [])
+    cache_key = f"hit_split_{team_id}_{n}"
+    empty = {"home": [], "away": [], "all": []}
+    try:
+        fetch_limit = max(n * 4, 40)
+        data = _get(f"{BASE}/teams/{team_id}/stats", {
+            "stats": "gameLog",
+            "group": "hitting",
+            "season": SEASON,
+            "limit": fetch_limit,
+        })
+        splits = data.get("stats", [{}])[0].get("splits", [])
 
-    home_logs = []
-    away_logs = []
-    all_logs  = []
+        home_logs, away_logs, all_logs = [], [], []
+        for s in splits:
+            stat = dict(s["stat"])
+            stat["_is_home"] = s.get("isHome", False)
+            stat["_date"]    = s.get("date", "")
+            all_logs.append(stat)
+            if s.get("isHome"):
+                home_logs.append(stat)
+            else:
+                away_logs.append(stat)
 
-    for s in splits:
-        stat = dict(s["stat"])
-        stat["_is_home"] = s.get("isHome", False)
-        stat["_date"]    = s.get("date", "")
-        all_logs.append(stat)
-        if s.get("isHome"):
-            home_logs.append(stat)
-        else:
-            away_logs.append(stat)
+        result = {"home": home_logs[:n], "away": away_logs[:n], "all": all_logs[:n]}
+        if all_logs:
+            _save_cache(cache_key, result)
+            # 방향3: 시즌 DB 업데이트 (최근 30경기 평균으로 시즌 proxy)
+            _update_season_db(team_id, all_logs)
+        return result
+    except Exception:
+        cached, cache_date = _load_cache(cache_key)
+        if cached:
+            print(f"  [캐시 fallback] hit_split team={team_id} ({cache_date})")
+            return cached
+        # 방향3: 시즌 DB에서 최후 fallback
+        season_db = _load_season_db()
+        db_entry = season_db.get(str(team_id))
+        if db_entry:
+            print(f"  [시즌DB fallback] team={team_id} (updated {db_entry.get('updated')})")
+            return db_entry.get("split_snapshot", empty)
+        return empty
 
-    return {
-        "home": home_logs[:n],
-        "away": away_logs[:n],
-        "all":  all_logs[:n],
-    }
+
+def _update_season_db(team_id: int, all_logs: list):
+    """최근 게임로그로 시즌 DB 업데이트 (방향3)"""
+    if not all_logs:
+        return
+    try:
+        db = _load_season_db()
+        # 최근 30경기로 팀 타선 평균 계산
+        logs = all_logs[:30]
+        def _avg(key):
+            vals = [float(g.get(key, 0) or 0) for g in logs if g.get(key) is not None]
+            return round(sum(vals) / len(vals), 3) if vals else 0.0
+
+        home_logs = [g for g in logs if g.get("_is_home")]
+        away_logs = [g for g in logs if not g.get("_is_home")]
+
+        db[str(team_id)] = {
+            "updated": date.today().isoformat(),
+            "avg":     _avg("avg"),
+            "ops":     _avg("ops"),
+            "runs_per_game": _avg("runs"),
+            "split_snapshot": {
+                "home": home_logs[:10],
+                "away": away_logs[:10],
+                "all":  logs[:10],
+            }
+        }
+        _save_season_db(db)
+    except Exception:
+        pass
 
 
 def get_team_hitting_season(team_id: int) -> dict:
-    """팀 시즌 타격 스탯 (리그 순위 계산용)"""
-    data = _get(f"{BASE}/teams/{team_id}/stats", {
-        "stats": "season",
-        "group": "hitting",
-        "season": SEASON,
-    })
-    splits = data.get("stats", [{}])[0].get("splits", [])
-    return splits[0]["stat"] if splits else {}
+    """팀 시즌 타격 스탯 (리그 순위 계산용). API 실패 시 캐시 fallback."""
+    cache_key = f"hit_season_{team_id}"
+    try:
+        data = _get(f"{BASE}/teams/{team_id}/stats", {
+            "stats": "season",
+            "group": "hitting",
+            "season": SEASON,
+        })
+        splits = data.get("stats", [{}])[0].get("splits", [])
+        result = splits[0]["stat"] if splits else {}
+        if result:
+            _save_cache(cache_key, result)
+        return result
+    except Exception:
+        cached, cache_date = _load_cache(cache_key)
+        if cached:
+            print(f"  [캐시 fallback] hit_season team={team_id} ({cache_date})")
+            return cached
+        return {}
 
 
 # ─── 팀 투구 게임로그 ────────────────────────────────────────────────
