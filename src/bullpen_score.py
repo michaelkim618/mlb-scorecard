@@ -41,15 +41,39 @@ def analyze_bullpen(pitch_logs: list, starter_avg_ip: float = 5.5) -> dict:
     }
 
 
-BULLPEN_SCORE_CAP = 80.0  # 불펜 점수 상한 (NYM 82.6처럼 극단값 방지)
+BULLPEN_SCORE_CAP = 80.0  # 불펜 점수 상한 (극단값 방지)
 
 def bullpen_score(stats: dict) -> float:
-    """불펜 ERA → 0~100 점수 (1.5ERA=100점, 6.5ERA=0점)
-    상한 80점 캡 적용 — 불펜 과대평가 방지
     """
-    era = stats.get("bullpen_era", 4.00)
-    score = max(0.0, min(100.0, (6.5 - era) / 5.0 * 100.0))
-    score = min(score, BULLPEN_SCORE_CAP)  # 상한 캡 적용
+    불펜 점수 계산 (0~80점)
+
+    시즌 ERA 60% + 최근 7일 ERA 40% 혼합
+    → 피로한 불펜(최근 ERA 급등)은 점수 하락
+    → 쉬고 있는 불펜(최근 ERA 낮음)은 점수 상승
+
+    추가 보정:
+    - 최근 7일 5회 이상 등판: 피로 페널티 -3pt
+    - 최근 7일 데이터 없음: 시즌 ERA만 사용
+    """
+    season_era = stats.get("bullpen_era", 4.00)
+    recent_era = stats.get("recent_era",  season_era)  # 없으면 시즌 ERA
+    appearances = stats.get("recent_appearances", 0)
+
+    # 시즌 ERA 점수 (60%)
+    season_s = max(0.0, min(100.0, (6.5 - season_era) / 5.0 * 100.0))
+    # 최근 7일 ERA 점수 (40%)
+    recent_s = max(0.0, min(100.0, (6.5 - recent_era) / 5.0 * 100.0))
+
+    # 혼합
+    score = season_s * 0.60 + recent_s * 0.40
+
+    # 피로도 페널티: 7일 내 5회 이상 등판 → -3pt, 7회 이상 → -6pt
+    if appearances >= 7:
+        score = max(0.0, score - 6.0)
+    elif appearances >= 5:
+        score = max(0.0, score - 3.0)
+
+    score = min(score, BULLPEN_SCORE_CAP)
     return round(score, 1)
 
 

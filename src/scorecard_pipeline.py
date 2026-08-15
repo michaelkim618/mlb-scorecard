@@ -377,7 +377,16 @@ def run(game_date: Optional[str] = None) -> list:
             home_bp_s = max(0.0, home_bp_s - WED_BP_PENALTY)
             print(f"    [수요일패널티] 불펜 각 -{WED_BP_PENALTY}pt 적용 (시리즈 마지막날 소진 리스크)")
 
-        print(f"    [불펜] {away_name}: ERA {away_bp_detail['bullpen_era']} ({away_bp_detail.get('bp_count',0)}명) → {away_bp_s}점 | {home_name}: ERA {home_bp_detail['bullpen_era']} ({home_bp_detail.get('bp_count',0)}명) → {home_bp_s}점")
+        def _bp_label(detail):
+            era = detail.get('bullpen_era', 4.00)
+            recent = detail.get('recent_era', era)
+            apps = detail.get('recent_appearances', 0)
+            cnt = detail.get('bp_count', 0)
+            fatigue = f" ⚡피로({apps}회)" if apps >= 5 else (f" ({apps}회)" if apps > 0 else "")
+            if abs(recent - era) >= 0.5:
+                return f"ERA {era}(최근7일:{recent}){fatigue} ({cnt}명)"
+            return f"ERA {era}{fatigue} ({cnt}명)"
+        print(f"    [불펜] {away_name}: {_bp_label(away_bp_detail)} → {away_bp_s}점 | {home_name}: {_bp_label(home_bp_detail)} → {home_bp_s}점")
 
         # ── 3. 타선 분석 ─────────────────────────────────────────────
         #   우선순위: ① 확정 라인업+시즌OPS  ② 전날 라인업+LHP/RHP스플릿  ③ 팀통계

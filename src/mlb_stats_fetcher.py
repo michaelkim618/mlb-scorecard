@@ -270,8 +270,18 @@ def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
         except Exception:
             return 0.0
 
+    # 최근 7일 기준일 계산
+    from datetime import date, timedelta
+    cutoff_date = date.today() - timedelta(days=7)
+
+    # 최근 7일 불펜 집계용
+    recent_bp_ip = 0.0
+    recent_bp_er = 0.0
+    recent_bp_appearances = 0  # 7일 내 등판 횟수 (피로도 지표)
+
     for pid in pitcher_ids:
         try:
+            # ① 시즌 스탯
             data = _get(f"{BASE}/people/{pid}/stats", {
                 "stats": "season",
                 "group": "pitching",
@@ -289,21 +299,58 @@ def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
             all_ip += ip
             all_er += er
 
-            if gs < starter_gs_threshold:   # 불펜 투수
+            is_bullpen = gs < starter_gs_threshold
+            if is_bullpen:
                 bp_ip += ip
                 bp_er += er
                 bp_count += 1
+
+            # ② 최근 7일 게임로그 (불펜 투수만)
+            if is_bullpen:
+                try:
+                    gl_data = _get(f"{BASE}/people/{pid}/stats", {
+                        "stats": "gameLog",
+                        "group": "pitching",
+                        "season": SEASON,
+                        "gameType": "R",
+                        "limit": 10,
+                    })
+                    gl_splits = gl_data.get("stats", [{}])[0].get("splits", [])
+                    for gl in gl_splits:
+                        game_date_str = gl.get("date", "")
+                        if not game_date_str:
+                            continue
+                        try:
+                            game_date = date.fromisoformat(game_date_str[:10])
+                        except Exception:
+                            continue
+                        if game_date >= cutoff_date:
+                            gl_stat = gl.get("stat", {})
+                            r_ip = _parse_ip(gl_stat.get("inningsPitched", "0"))
+                            r_er = float(gl_stat.get("earnedRuns", 0) or 0)
+                            recent_bp_ip += r_ip
+                            recent_bp_er += r_er
+                            recent_bp_appearances += 1
+                except Exception:
+                    pass
+
         except Exception:
             continue
 
     bullpen_era = round(bp_er / bp_ip * 9, 2) if bp_ip > 0 else 4.00
     team_era    = round(all_er / all_ip * 9, 2) if all_ip > 0 else 4.00
 
+    # 최근 7일 ERA (샘플 부족 시 시즌 ERA로 fallback)
+    recent_era = round(recent_bp_er / recent_bp_ip * 9, 2) if recent_bp_ip >= 2.0 else bullpen_era
+
     return {
-        "bullpen_era": bullpen_era,
-        "team_era":    team_era,
-        "bp_ip":       round(bp_ip, 1),
-        "bp_count":    bp_count,
+        "bullpen_era":          bullpen_era,
+        "recent_era":           recent_era,           # 최근 7일 ERA
+        "recent_appearances":   recent_bp_appearances, # 7일 내 등판 횟수 (피로도)
+        "recent_ip":            round(recent_bp_ip, 1),
+        "team_era":             team_era,
+        "bp_ip":                round(bp_ip, 1),
+        "bp_count":             bp_count,
     }
 
 
