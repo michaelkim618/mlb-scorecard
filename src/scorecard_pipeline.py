@@ -320,19 +320,33 @@ def run(game_date: Optional[str] = None) -> list:
         # 시즌 ERA 가져오기 (하한선 보정용)
         away_season_era = None
         home_season_era = None
+        away_season_wins = away_season_losses = None
+        home_season_wins = home_season_losses = None
         if away_pitcher_id and not away_is_tbd:
             _aw_s = _safe(lambda p=away_pitcher_id: get_pitcher_season(p), {}, "원정선발시즌ERA")
             _aw_era = _aw_s.get("era")
             try: away_season_era = float(_aw_era) if _aw_era else None
+            except: pass
+            try: away_season_wins   = int(_aw_s.get("wins",   0) or 0)
+            except: pass
+            try: away_season_losses = int(_aw_s.get("losses", 0) or 0)
             except: pass
         if home_pitcher_id and not home_is_tbd:
             _hm_s = _safe(lambda p=home_pitcher_id: get_pitcher_season(p), {}, "홈선발시즌ERA")
             _hm_era = _hm_s.get("era")
             try: home_season_era = float(_hm_era) if _hm_era else None
             except: pass
+            try: home_season_wins   = int(_hm_s.get("wins",   0) or 0)
+            except: pass
+            try: home_season_losses = int(_hm_s.get("losses", 0) or 0)
+            except: pass
 
-        away_sp_s = TBD_SCORE if away_is_tbd else pitcher_score(away_sp_detail, season_era=away_season_era)
-        home_sp_s = TBD_SCORE if home_is_tbd else pitcher_score(home_sp_detail, season_era=home_season_era)
+        away_sp_s = TBD_SCORE if away_is_tbd else pitcher_score(
+            away_sp_detail, season_era=away_season_era,
+            season_wins=away_season_wins, season_losses=away_season_losses)
+        home_sp_s = TBD_SCORE if home_is_tbd else pitcher_score(
+            home_sp_detail, season_era=home_season_era,
+            season_wins=home_season_wins, season_losses=home_season_losses)
 
         tbd_tag_away = " [미정]" if away_est_pitcher else (" [TBD]" if away_is_tbd else "")
         tbd_tag_home = " [미정]" if home_est_pitcher else (" [TBD]" if home_is_tbd else "")

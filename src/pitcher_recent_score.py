@@ -111,14 +111,17 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
     else:
         trend = "cold"   # ERA 4.0 이상 = 불안정
 
-    # 직전 등판 경보
-    # ㆍhot/stable: 최근 2경기 중 1개라도 ERA >= 6.0 → 위험 신호 (5경기 평균이 희석하는 급락 포착)
-    # ㆍcold:       cold 패널티(-8pt)는 이미 적용되지만, 최근 2경기 ERA >= 9.0이면 극단적 붕괴
-    #               → 추가 경보 (ERA 15.0 같은 완전 붕괴 케이스 반영)
-    if trend in ("hot", "stable"):
-        recent_bad_start = any(e >= 6.0 for e in last2_eras)
-    elif trend == "cold":
-        recent_bad_start = any(e >= 9.0 for e in last2_eras)   # cold는 기준 높임 (이중패널티 최소화)
+    # 직전 등판 경보 — 직전 1경기만 체크 (2경기 전 나쁜 등판은 이미 회복으로 볼 수 있음)
+    # ㆍhot/stable: 직전 마지막 등판 ERA >= 6.0 → 위험 신호
+    # ㆍcold:       직전 마지막 등판 ERA >= 9.0 → 극단적 붕괴 (cold -8pt 이미 적용)
+    last_era = last2_eras[-1] if last2_eras else None
+    if last_era is not None:
+        if trend in ("hot", "stable"):
+            recent_bad_start = last_era >= 6.0
+        elif trend == "cold":
+            recent_bad_start = last_era >= 9.0
+        else:
+            recent_bad_start = False
     else:
         recent_bad_start = False
 
@@ -163,12 +166,17 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
     }
 
 
-def pitcher_score(stats: dict, season_era: float = None) -> float:
+def pitcher_score(stats: dict, season_era: float = None,
+                  season_wins: int = None, season_losses: int = None) -> float:
     """
     투수 분석 → 0~100 점수
-    ERA 45% + WHIP 35% + 이닝 10% + QS율 10%
+    ERA 40% + WHIP 30% + K/9 20% + 이닝 5% + QS율 5%
 
-    개선 사항 (v2):
+    개선 사항 (v3):
+      - K/9 가중치 20% 신설 (탈삼진은 ERA보다 안정적 지표)
+      - QS Rate 가중치 10%→5% (pitch-count 관리 시대에 QS는 과대평가)
+      - ERA 45%→40%, WHIP 35%→30%, IP 10%→5%
+      - W-L 승률 보너스/페널티 추가 (season_wins/season_losses)
       - Hot +3pt (과가중 완화, 이전 +6pt)
       - Cold -8pt (완화, 이전 -14pt)
       - Neutral(장기휴식 복귀): 트렌드 보정 없음
@@ -180,6 +188,7 @@ def pitcher_score(stats: dict, season_era: float = None) -> float:
     """
     era    = stats.get("era",     4.50)
     whip   = stats.get("whip",    1.35)
+    k9     = stats.get("k9",      7.0)
     avg_ip = stats.get("avg_ip",  5.0)
     qs     = stats.get("qs_rate", 30.0)
     trend  = stats.get("trend",   "stable")
@@ -190,11 +199,12 @@ def pitcher_score(stats: dict, season_era: float = None) -> float:
     # 0~100 정규화
     era_s  = max(0.0, min(100.0, (7.5 - era)    / 7.5  * 100.0))
     whip_s = max(0.0, min(100.0, (2.0 - whip)   / 1.2  * 100.0))
+    k9_s   = max(0.0, min(100.0, (k9 - 4.0)     / 8.0  * 100.0))
     ip_s   = max(0.0, min(100.0, (avg_ip - 3.0) / 5.0  * 100.0))
     qs_s   = max(0.0, min(100.0, qs / 80.0 * 100.0))
 
-    # ERA 45% + WHIP 35% + 이닝 10% + QS율 10%
-    raw_score = era_s * 0.45 + whip_s * 0.35 + ip_s * 0.10 + qs_s * 0.10
+    # ERA 40% + WHIP 30% + K/9 20% + 이닝 5% + QS율 5%
+    raw_score = era_s * 0.40 + whip_s * 0.30 + k9_s * 0.20 + ip_s * 0.05 + qs_s * 0.05
 
     # 샘플 신뢰도 보정: n_games < 5이면 리그 평균(45pt) 방향으로 회귀
     LEAGUE_AVG = 45.0
@@ -221,6 +231,22 @@ def pitcher_score(stats: dict, season_era: float = None) -> float:
     elif rest_note == "extra_rest":
         score = max(0.0, score - 2.0)   # 과잉 휴식 불확실성 (완화)
     # long_rest: trend가 neutral로 이미 리셋됨 → 추가 페널티 없음
+
+    # ── W-L 승률 보너스/페널티 ──────────────────────────────────────
+    # 14-2(87.5%) 투수와 13-7(65%) 투수는 유의미한 차이
+    # 최소 5결정(wins+losses)이 있어야 신뢰도 있는 지표로 사용
+    if season_wins is not None and season_losses is not None:
+        total_decisions = season_wins + season_losses
+        if total_decisions >= 5:
+            win_pct = season_wins / total_decisions
+            if win_pct >= 0.75:
+                score = min(100.0, score + 3.0)   # 에이스급 승률 (예: 12-4)
+            elif win_pct >= 0.60:
+                score = min(100.0, score + 1.5)   # 우수 승률 (예: 9-6)
+            elif win_pct <= 0.35:
+                score = max(0.0, score - 3.0)     # 부진 투수 (예: 4-8+)
+            elif win_pct <= 0.40:
+                score = max(0.0, score - 2.0)     # 평균 이하 (예: 6-9)
 
     # ── 시즌 ERA 하한선 ─────────────────────────────────────────────
     # 최근 성적이 나빠도 시즌 누적 ERA가 양호하면 최소 점수 보장
