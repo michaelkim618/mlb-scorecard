@@ -480,8 +480,13 @@ def run(game_date: Optional[str] = None) -> list:
         home_bat_s = batting_score(home_bat_detail)
         away_split_label = f"원정{len(away_hit_split.get('away',[]))}경기" if away_hit_split.get("away") else "전체10경기"
         home_split_label = f"홈{len(home_hit_split.get('home',[]))}경기"  if home_hit_split.get("home")  else "전체10경기"
-        print(f"    [타선] {away_name}({away_split_label}): avg {away_bat_detail['recent_avg']:.3f} OPS {away_bat_detail['season_ops']:.3f} 득점 {away_bat_detail['runs_per_g']} → {away_bat_s}점")
-        print(f"    [타선] {home_name}({home_split_label}): avg {home_bat_detail['recent_avg']:.3f} OPS {home_bat_detail['season_ops']:.3f} 득점 {home_bat_detail['runs_per_g']} → {home_bat_s}점")
+        def _trend_label(detail):
+            t = detail.get("bat_trend", "stable")
+            if t == "hot":   return " 🔥타선hot"
+            if t == "cold":  return " 🥶타선cold"
+            return ""
+        print(f"    [타선] {away_name}({away_split_label}): avg {away_bat_detail['recent_avg']:.3f} OPS {away_bat_detail['season_ops']:.3f} 득점 {away_bat_detail['runs_per_g']}{_trend_label(away_bat_detail)} → {away_bat_s}점")
+        print(f"    [타선] {home_name}({home_split_label}): avg {home_bat_detail['recent_avg']:.3f} OPS {home_bat_detail['season_ops']:.3f} 득점 {home_bat_detail['runs_per_g']}{_trend_label(home_bat_detail)} → {home_bat_s}점")
 
         # ── 4. 상황 분석 ──────────────────────────────────────────────
         away_st = standings_map.get(away_id, {})

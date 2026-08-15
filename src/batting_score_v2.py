@@ -1,5 +1,5 @@
 """
-타선 점수 계산 (시즌 OPS + 최근 10경기 타격)
+타선 점수 계산 (시즌 OPS + 최근 10경기 타격 + 최근 5경기 트렌드)
 """
 
 
@@ -20,7 +20,33 @@ def _calc_hitting_stats(logs: list, season_stats: dict = None) -> dict:
     runs_per_g = round(total_r / n, 1)        if n > 0        else 4.3
     hr_per_g   = round(total_hr / n, 2)       if n > 0        else 1.1
     bb_per_g   = round(total_bb / n, 1)       if n > 0        else 3.0
-    explosive_games = sum(1 for s in logs if int(s.get("runs", 0) or 0) >= 7)
+
+    # ── 최근 5경기 트렌드 계산 ──────────────────────────────────────
+    # MLB API는 오래된순 정렬 → 마지막 5개가 최신 5경기
+    last5 = logs[-5:]
+    l5_r  = sum(int(s.get("runs", 0) or 0) for s in last5)
+    l5_ab = sum(int(s.get("atBats", 0) or 0) for s in last5)
+    l5_h  = sum(int(s.get("hits", 0) or 0) for s in last5)
+    l5_n  = len(last5)
+    last5_rpg = round(l5_r / l5_n, 1)    if l5_n > 0  else runs_per_g
+    last5_avg = round(l5_h / l5_ab, 3)   if l5_ab > 0 else recent_avg
+
+    # 트렌드 판정: 최근 5경기 vs 전체 10경기 비교
+    # AND → OR로 완화: 득점 또는 타율 중 하나만 기준 충족해도 트렌드 인정
+    if l5_n >= 3:
+        rpg_hot  = last5_rpg >= runs_per_g * 1.20   # 최근 5경기 득점 20%↑
+        avg_hot  = last5_avg >= recent_avg + 0.015   # 최근 5경기 타율 .015↑
+        rpg_cold = last5_rpg <= runs_per_g * 0.80   # 최근 5경기 득점 20%↓
+        avg_cold = last5_avg <= recent_avg - 0.015   # 최근 5경기 타율 .015↓
+
+        if rpg_hot and avg_hot:
+            bat_trend = "hot"    # 득점 + 타율 모두 상승 → 확실한 hot
+        elif rpg_cold and avg_cold:
+            bat_trend = "cold"   # 득점 + 타율 모두 하락 → 확실한 cold
+        else:
+            bat_trend = "stable"
+    else:
+        bat_trend = "stable"
 
     try:
         season_ops = float(season_stats.get("ops", 0.720) or 0.720)
@@ -36,15 +62,17 @@ def _calc_hitting_stats(logs: list, season_stats: dict = None) -> dict:
         season_slg = 0.400
 
     return {
-        "recent_avg":      recent_avg,
-        "runs_per_g":      runs_per_g,
-        "hr_per_g":        hr_per_g,
-        "bb_per_g":        bb_per_g,
-        "season_ops":      season_ops,
-        "season_avg":      season_avg,
-        "season_slg":      season_slg,
-        "n_games":         n,
-        "explosive_games": explosive_games,
+        "recent_avg":   recent_avg,
+        "runs_per_g":   runs_per_g,
+        "hr_per_g":     hr_per_g,
+        "bb_per_g":     bb_per_g,
+        "season_ops":   season_ops,
+        "season_avg":   season_avg,
+        "season_slg":   season_slg,
+        "n_games":      n,
+        "last5_rpg":    last5_rpg,
+        "last5_avg":    last5_avg,
+        "bat_trend":    bat_trend,
     }
 
 
@@ -82,26 +110,31 @@ def batting_score(stats: dict) -> float:
     """
     타선 통계 → 0~100 점수
 
-    v3 가중치 (개선 #1: SLG 장타율 독립 반영):
-      시즌 OPS  20% (기존 25%→20%)
-      시즌 SLG  15% (신규 — 장타 폭발력 반영)
-      최근 AVG  30% (기존 35%→30%)
-      득점/경기 25% (기존 30%→25%)
-      HR/경기   10% (유지)
+    v4 가중치:
+      시즌 OPS  20%
+      시즌 SLG  15% (장타 폭발력)
+      최근 AVG  30%
+      득점/경기 25%
+      HR/경기   10%
 
-    SLG 추가 이유:
-      OPS에 SLG가 포함되지만, 독립 변수로 따로 주면
-      BAL/SD 같은 "저타율인데 장타 폭발" 팀을 더 잘 포착.
-      오늘 BAL bat=16pt(AVG 낮음)인데 10득점 → SLG가 핵심.
+    트렌드 보정 (최근 5경기 vs 전체 10경기):
+      hot   → +4pt (득점 25%↑ + 타율 .020↑)
+      cold  → -4pt (득점 25%↓ + 타율 .020↓)
+      stable→ 보정 없음
+
+    변경사항 (v4):
+      - explosive_games 보너스 제거 (득점/경기와 중복 집계)
+      - 최근 5경기 트렌드(hot/cold) 보정 추가
     """
     ops  = stats.get("season_ops", 0.720)
     slg  = stats.get("season_slg", 0.400)
     ravg = stats.get("recent_avg", 0.250)
     rpg  = stats.get("runs_per_g", 4.3)
     hr   = stats.get("hr_per_g",   1.1)
+    trend = stats.get("bat_trend", "stable")
 
     ops_s  = max(0.0, min(100.0, (ops  - 0.600) / 0.350 * 100.0))
-    slg_s  = max(0.0, min(100.0, (slg  - 0.300) / 0.300 * 100.0))  # 0.300~0.600 범위
+    slg_s  = max(0.0, min(100.0, (slg  - 0.300) / 0.300 * 100.0))
     ravg_s = max(0.0, min(100.0, (ravg - 0.200) / 0.160 * 100.0))
     rpg_s  = max(0.0, min(100.0, (rpg  - 2.0)   / 6.0   * 100.0))
     hr_s   = max(0.0, min(100.0, (hr   - 0.3)   / 2.2   * 100.0))
@@ -112,12 +145,11 @@ def batting_score(stats: dict) -> float:
              rpg_s  * 0.25 +
              hr_s   * 0.10)
 
-    # 폭발 지표 보너스: 7점+ 경기 2회 이상이면 +3pt, 3회 이상이면 +5pt
-    explosive = stats.get("explosive_games", 0)
-    if explosive >= 3:
-        score = min(100.0, score + 5.0)
-    elif explosive >= 2:
-        score = min(100.0, score + 3.0)
+    # 최근 5경기 트렌드 보정
+    if trend == "hot":
+        score = min(100.0, score + 4.0)
+    elif trend == "cold":
+        score = max(0.0,   score - 4.0)
 
     return round(max(0.0, min(100.0, score)), 1)
 

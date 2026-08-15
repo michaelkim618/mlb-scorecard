@@ -87,7 +87,7 @@ def get_team_hitting_log(team_id: int, limit: int = 10) -> list:
             "limit": limit,
         })
         splits = data.get("stats", [{}])[0].get("splits", [])
-        result = [s["stat"] for s in splits[:limit]]
+        result = [s["stat"] for s in splits[-limit:]]
         if result:
             _save_cache(cache_key, result)
         return result
@@ -131,7 +131,7 @@ def get_team_hitting_log_split(team_id: int, n: int = 10) -> dict:
             else:
                 away_logs.append(stat)
 
-        result = {"home": home_logs[:n], "away": away_logs[:n], "all": all_logs[:n]}
+        result = {"home": home_logs[-n:], "away": away_logs[-n:], "all": all_logs[-n:]}
         if all_logs:
             _save_cache(cache_key, result)
             # 방향3: 시즌 DB 업데이트 (최근 30경기 평균으로 시즌 proxy)
@@ -158,7 +158,7 @@ def _update_season_db(team_id: int, all_logs: list):
     try:
         db = _load_season_db()
         # 최근 30경기로 팀 타선 평균 계산
-        logs = all_logs[:30]
+        logs = all_logs[-30:]
         def _avg(key):
             vals = [float(g.get(key, 0) or 0) for g in logs if g.get(key) is not None]
             return round(sum(vals) / len(vals), 3) if vals else 0.0
@@ -172,9 +172,9 @@ def _update_season_db(team_id: int, all_logs: list):
             "ops":     _avg("ops"),
             "runs_per_game": _avg("runs"),
             "split_snapshot": {
-                "home": home_logs[:10],
-                "away": away_logs[:10],
-                "all":  logs[:10],
+                "home": home_logs[-10:],
+                "away": away_logs[-10:],
+                "all":  logs[-10:],
             }
         }
         _save_season_db(db)
