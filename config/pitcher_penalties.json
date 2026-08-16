@@ -72,6 +72,15 @@
       "reason": "저구속 제구형(패스트볼 88~89mph, K/9 7.38) — 강타선 상대 시 위협 부재. 8/10 NYM전 5IP 7ER 10피안타 붕괴. 약팀(MIA/WSH/BAL) 상대 최근 호투는 착시.",
       "added_date": "2026-08-11",
       "last_reviewed": "2026-08-11"
+    },
+    {
+      "pitcher_id": 656550,
+      "pitcher_name": "Grant Holmes",
+      "team": "Atlanta Braves",
+      "penalty": -8.0,
+      "reason": "저탈삼진(K/9 7.42) + 제구 불안(BB/9 3.90) + 장타 허용(HR/9 1.45) 조합. QS율 20% — 5경기 중 1번만 퀄리티스타트. 8/4·8/9 연속 호투 후 8/15 ARI전 3.2IP 6ER 완전 붕괴. 강타선 상대 신뢰도 없음.",
+      "added_date": "2026-08-15",
+      "last_reviewed": "2026-08-15"
     }
   ],
   "watch_list": [
