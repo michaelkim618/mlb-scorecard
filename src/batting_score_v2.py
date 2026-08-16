@@ -191,7 +191,10 @@ def analyze_lineup_batting(players: list, team_hit_logs: list = None) -> dict:
     avg_ops    = round(sum(ops_list) / len(ops_list), 3)
     avg_recent = round(sum(avg_list) / len(avg_list), 3)
 
-    # 팀 통계에서 득점/HR 보완 (개인 합산보다 팀 집계가 더 정확)
+    # 팀 통계에서 득점/HR 보완 + 트렌드 계산 (개인 합산보다 팀 집계가 더 정확)
+    bat_trend = "stable"
+    last5_rpg = 4.3
+    last5_avg = avg_recent
     if team_hit_logs:
         logs = team_hit_logs[:10]
         n = len(logs)
@@ -199,6 +202,24 @@ def analyze_lineup_batting(players: list, team_hit_logs: list = None) -> dict:
         total_hr = sum(int(s.get("homeRuns",  0) or 0) for s in logs)
         runs_per_g = round(total_r  / n, 1) if n > 0 else 4.3
         hr_per_g   = round(total_hr / n, 2) if n > 0 else 1.1
+
+        # 최근 5경기 트렌드
+        last5 = logs[-5:]
+        l5_n  = len(last5)
+        l5_r  = sum(int(s.get("runs", 0) or 0) for s in last5)
+        l5_h  = sum(int(s.get("hits", 0) or 0) for s in last5)
+        l5_ab = sum(int(s.get("atBats", 0) or 0) for s in last5)
+        last5_rpg = round(l5_r / l5_n, 1)    if l5_n > 0  else runs_per_g
+        last5_avg = round(l5_h / l5_ab, 3)   if l5_ab > 0 else avg_recent
+        if l5_n >= 3:
+            rpg_hot  = last5_rpg >= runs_per_g * 1.20
+            avg_hot  = last5_avg >= avg_recent + 0.015
+            rpg_cold = last5_rpg <= runs_per_g * 0.80
+            avg_cold = last5_avg <= avg_recent - 0.015
+            if rpg_hot and avg_hot:
+                bat_trend = "hot"
+            elif rpg_cold and avg_cold:
+                bat_trend = "cold"
     else:
         runs_per_g = 4.3
         hr_per_g   = 1.1
@@ -220,6 +241,9 @@ def analyze_lineup_batting(players: list, team_hit_logs: list = None) -> dict:
         "source":          "lineup",
         "lineup_ops":      names,
         "lineup_players":  lineup_players,  # Hero 선수 선정용
+        "bat_trend":       bat_trend,
+        "last5_rpg":       last5_rpg,
+        "last5_avg":       last5_avg,
     }
 
 
@@ -263,7 +287,10 @@ def analyze_lineup_batting_with_splits(
     avg_ops    = round(sum(ops_list) / len(ops_list), 3)
     avg_recent = round(sum(avg_list) / len(avg_list), 3)
 
-    # 팀 통계에서 득점/HR 보완
+    # 팀 통계에서 득점/HR 보완 + 트렌드 계산
+    bat_trend = "stable"
+    last5_rpg = 4.3
+    last5_avg = avg_recent
     if team_hit_logs:
         logs = team_hit_logs[:10]
         n = len(logs)
@@ -271,6 +298,24 @@ def analyze_lineup_batting_with_splits(
         total_hr = sum(int(s.get("homeRuns", 0) or 0) for s in logs)
         runs_per_g = round(total_r  / n, 1) if n > 0 else 4.3
         hr_per_g   = round(total_hr / n, 2) if n > 0 else 1.1
+
+        # 최근 5경기 트렌드 (팀 게임로그 기반)
+        last5 = logs[-5:]
+        l5_n  = len(last5)
+        l5_r  = sum(int(s.get("runs", 0) or 0) for s in last5)
+        l5_h  = sum(int(s.get("hits", 0) or 0) for s in last5)
+        l5_ab = sum(int(s.get("atBats", 0) or 0) for s in last5)
+        last5_rpg = round(l5_r / l5_n, 1)    if l5_n > 0  else runs_per_g
+        last5_avg = round(l5_h / l5_ab, 3)   if l5_ab > 0 else avg_recent
+        if l5_n >= 3:
+            rpg_hot  = last5_rpg >= runs_per_g * 1.20
+            avg_hot  = last5_avg >= avg_recent + 0.015
+            rpg_cold = last5_rpg <= runs_per_g * 0.80
+            avg_cold = last5_avg <= avg_recent - 0.015
+            if rpg_hot and avg_hot:
+                bat_trend = "hot"
+            elif rpg_cold and avg_cold:
+                bat_trend = "cold"
     else:
         runs_per_g = 4.3
         hr_per_g   = 1.1
@@ -293,6 +338,9 @@ def analyze_lineup_batting_with_splits(
         "splits_used":     splits_used,
         "lineup_ops":      names,
         "lineup_players":  lineup_players,  # Hero 선수 선정용
+        "bat_trend":       bat_trend,
+        "last5_rpg":       last5_rpg,
+        "last5_avg":       last5_avg,
     }
 
 
