@@ -21,26 +21,26 @@ def situational_score(
     """
     score = 50.0
 
-    # ── 홈 어드밴티지 (팀 실제 홈 성적 기반 동적 조정) ──────────────
-    # MLB 평균 홈 승률 ≈ 54%. 고정 +5pt → 팀별 차등 적용
+    # ── 홈 어드밴티지 (팀 실제 홈/최근 성적 기반 동적 조정) ─────────
+    # MLB 실제 홈 승률 ≈ 52.3%. 상한선 +3pt로 제한 (과대평가 방지)
+    # 근거: 이틀간 홈팀 실제 승률 30% — 시즌 홈승률 과신이 핵심 오류
     if is_home:
-        wpct = home_wpct if home_wpct is not None else 0.540  # 기본값: MLB 평균
+        wpct = home_wpct if home_wpct is not None else 0.523  # MLB 2026 평균
         if wpct >= 0.620:
-            score += 5.0    # 홈 강팀 (62%+): 강한 어드밴티지
+            score += 3.0    # 홈 강팀 (62%+): 기존 5pt → 3pt (상한선 적용)
         elif wpct >= 0.560:
-            score += 3.5    # 홈 평균 이상 (56~62%)
+            score += 2.0    # 홈 평균 이상 (56~62%): 기존 3.5pt → 2pt
         elif wpct >= 0.500:
-            score += 2.0    # 홈 평균 이하 (50~56%)
+            score += 1.0    # 홈 평균 이하 (50~56%): 기존 2pt → 1pt
         else:
-            score += 0.5    # 홈 약팀 (50% 미만): 거의 어드밴티지 없음
+            score += 0.0    # 홈 약팀 (50% 미만): 어드밴티지 없음
 
     # ── 원정 강팀 보정 ────────────────────────────────────────────────
-    # 원정에서 특히 강한 팀은 원정에서도 어드밴티지 인정
     elif not is_home and away_wpct is not None:
         if away_wpct >= 0.600:
-            score += 2.0    # 원정 강팀: 소폭 보정
+            score += 1.5    # 원정 강팀: 소폭 보정 (기존 2pt → 1.5pt)
         elif away_wpct < 0.400:
-            score -= 2.0    # 원정 약팀: 페널티
+            score -= 1.5    # 원정 약팀: 페널티
 
     # 연승/연패 모멘텀
     if streak >= 7:

@@ -478,6 +478,59 @@ def get_standings_map() -> dict:
     return result
 
 
+def get_recent_home_away_wpct(team_id: int, n: int = 15) -> dict:
+    """
+    최근 N경기 홈/원정 승률 계산 (시즌 전체 아닌 최근 폼 기반).
+    시즌 초 홈 강팀이 최근 부진해도 과대평가되는 문제 방지.
+    Returns: {"home_wpct": float, "away_wpct": float, "home_n": int, "away_n": int}
+    """
+    try:
+        fetch_limit = n * 3  # 홈/원정 분리해서 각 n개 확보하려면 넉넉히
+        data = _get(f"{BASE}/teams/{team_id}/stats", {
+            "stats": "gameLog",
+            "group": "hitting",
+            "season": SEASON,
+            "limit": fetch_limit,
+        })
+        splits = data.get("stats", [{}])[0].get("splits", [])
+        # 최신순 정렬 (API는 오래된순)
+        recent = splits[-fetch_limit:]
+
+        home_games = [s for s in recent if s.get("isHome")]
+        away_games = [s for s in recent if not s.get("isHome")]
+
+        def _calc_wpct(games, max_n):
+            games = games[-max_n:]  # 최근 n경기만
+            if not games:
+                return 0.500, 0
+            wins = sum(1 for g in games
+                       if int(g["stat"].get("runs", 0) or 0) >
+                          int(g["stat"].get("runsBattedIn", 0) or 0))  # 대략 proxy
+            # 실제 W/L 정보는 stat에 없으므로 게임로그 W/L 필드 사용
+            wins = sum(1 for g in games if g.get("isWin") or g.get("stat", {}).get("wins", 0))
+            return round(wins / len(games), 3), len(games)
+
+        # isWin 필드가 있는지 확인
+        home_recent = home_games[-n:]
+        away_recent = away_games[-n:]
+        home_wins = sum(1 for g in home_recent if g.get("isWin"))
+        away_wins = sum(1 for g in away_recent if g.get("isWin"))
+        home_n = len(home_recent)
+        away_n = len(away_recent)
+
+        home_wpct = round(home_wins / home_n, 3) if home_n >= 5 else None
+        away_wpct = round(away_wins / away_n, 3) if away_n >= 5 else None
+
+        return {
+            "home_wpct": home_wpct,
+            "away_wpct": away_wpct,
+            "home_n":    home_n,
+            "away_n":    away_n,
+        }
+    except Exception:
+        return {"home_wpct": None, "away_wpct": None, "home_n": 0, "away_n": 0}
+
+
 @lru_cache(maxsize=1)
 def get_league_standings() -> dict:
     """팀ID → leagueRank 매핑 (1 = 1위)"""

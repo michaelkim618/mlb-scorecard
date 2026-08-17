@@ -19,7 +19,8 @@ from mlb_schedule         import get_games
 from mlb_stats_fetcher    import (get_team_hitting_log, get_team_hitting_log_split,
                                    get_team_pitching_log,
                                    get_pitcher_gamelog, get_pitcher_season,
-                                   get_standings_map, get_bullpen_era_direct)
+                                   get_standings_map, get_bullpen_era_direct,
+                                   get_recent_home_away_wpct)
 from pitcher_recent_score import analyze_pitcher_recent, pitcher_score, _default_pitcher
 from bullpen_score        import bullpen_score, _default_bullpen
 from batting_score_v2     import (analyze_batting, analyze_lineup_batting,
@@ -492,13 +493,27 @@ def run(game_date: Optional[str] = None) -> list:
         away_st = standings_map.get(away_id, {})
         home_st = standings_map.get(home_id, {})
 
+        # 최근 15경기 홈/원정 승률 (시즌 전체와 50:50 블렌딩)
+        # 시즌 초 홈 강팀이 최근 부진해도 과대평가되는 문제 방지
+        away_recent_wpct = _safe(lambda aid=away_id: get_recent_home_away_wpct(aid, 15), {}, "원정최근승률")
+        home_recent_wpct = _safe(lambda hid=home_id: get_recent_home_away_wpct(hid, 15), {}, "홈최근승률")
+
+        season_home_wpct = home_st.get("home_wpct", 0.523)
+        season_away_wpct = away_st.get("away_wpct", 0.477)
+        recent_home_wpct = home_recent_wpct.get("home_wpct")
+        recent_away_wpct = away_recent_wpct.get("away_wpct")
+
+        # 최근 데이터 충분 시 시즌 50% + 최근 50% 블렌딩
+        blended_home_wpct = (season_home_wpct * 0.5 + recent_home_wpct * 0.5) if recent_home_wpct is not None else season_home_wpct
+        blended_away_wpct = (season_away_wpct * 0.5 + recent_away_wpct * 0.5) if recent_away_wpct is not None else season_away_wpct
+
         away_sit_s = situational_score(
             is_home=False,
             streak=away_st.get("streak_wins", 0),
             div_rank=away_st.get("div_rank"),
             wins=away_st.get("wins"),
             losses=away_st.get("losses"),
-            away_wpct=away_st.get("away_wpct"),
+            away_wpct=blended_away_wpct,
         )
         home_sit_s = situational_score(
             is_home=True,
@@ -506,11 +521,12 @@ def run(game_date: Optional[str] = None) -> list:
             div_rank=home_st.get("div_rank"),
             wins=home_st.get("wins"),
             losses=home_st.get("losses"),
-            home_wpct=home_st.get("home_wpct"),
+            home_wpct=blended_home_wpct,
         )
-        home_wpct_val = home_st.get("home_wpct", 0.54)
-        away_wpct_val = away_st.get("away_wpct", 0.46)
-        print(f"    [상황] {away_name}: {away_sit_s}점 (streak {away_st.get('streak_wins',0):+d}, 원정승률 {away_wpct_val:.3f}) | {home_name}: {home_sit_s}점 (streak {home_st.get('streak_wins',0):+d}, 홈승률 {home_wpct_val:.3f})")
+        home_wpct_val = blended_home_wpct
+        away_wpct_val = blended_away_wpct
+        recent_tag = f" [최근:{recent_home_wpct:.3f}]" if recent_home_wpct else ""
+        print(f"    [상황] {away_name}: {away_sit_s}점 (streak {away_st.get('streak_wins',0):+d}, 원정승률 {away_wpct_val:.3f}) | {home_name}: {home_sit_s}점 (streak {home_st.get('streak_wins',0):+d}, 홈승률 {home_wpct_val:.3f}{recent_tag})")
 
         # ── 4.5 쿠어스 필드 보정 (COL 홈경기) ────────────────────────
         is_coors = ("Colorado" in home_name or "Rockies" in home_name)
@@ -621,6 +637,23 @@ def run(game_date: Optional[str] = None) -> list:
             _dir = "하향" if _pval < 0 else "상향"
             print(f"    [투수 패널티] {_p['pitcher_name']} ({home_name} 선발) → {abs(_pval):.0f}% {_dir}")
 
+        # ── 6.5 선발 ERA 리스크 보정 (season ERA 4.5+ 시 승률 하향) ────
+        # 고ERA 선발이 출전하는데도 불펜/타선으로 승률이 60%+인 경우 과신 방지
+        SP_ERA_RISK_THRESHOLD  = 4.5   # ERA 이 이상이면 리스크 적용
+        SP_ERA_RISK_MAX_PENALTY = 5.0  # 최대 패널티 %p
+        if away_season_era and away_season_era >= SP_ERA_RISK_THRESHOLD:
+            era_penalty = min(SP_ERA_RISK_MAX_PENALTY, (away_season_era - SP_ERA_RISK_THRESHOLD) * 1.5)
+            if away_win_pct > 55.0:   # 55% 이상일 때만 적용
+                away_win_pct = max(50.0, away_win_pct - era_penalty)
+                home_win_pct = round(100.0 - away_win_pct, 1)
+                print(f"    [ERA리스크] {away_name} 선발 ERA {away_season_era:.2f} → -{era_penalty:.1f}% 보정")
+        if home_season_era and home_season_era >= SP_ERA_RISK_THRESHOLD:
+            era_penalty = min(SP_ERA_RISK_MAX_PENALTY, (home_season_era - SP_ERA_RISK_THRESHOLD) * 1.5)
+            if home_win_pct > 55.0:
+                home_win_pct = max(50.0, home_win_pct - era_penalty)
+                away_win_pct = round(100.0 - home_win_pct, 1)
+                print(f"    [ERA리스크] {home_name} 선발 ERA {home_season_era:.2f} → -{era_penalty:.1f}% 보정")
+
         # ── 7. TBD 추가 패널티 ────────────────────────────────────────
         if away_is_tbd and not home_is_tbd:
             home_win_pct = min(home_win_pct + 4.0, HARD_CAP)
@@ -683,6 +716,14 @@ def run(game_date: Optional[str] = None) -> list:
             home_win_pct = WEAK_BAT_CAP
             away_win_pct = round(100.0 - home_win_pct, 1)
             print(f"    [타선약팀캡] {home_name} 타선 약(bat={home_bat_s:.1f}) → 승률 {WEAK_BAT_CAP}%로 제한")
+
+        # ── 7.95 확률 압축 (Shrinkage toward 50%) ────────────────────
+        # 분석: 2일간 70%+ 예측도 실제 50% 적중 → 극단적 확률은 과신
+        # MLB 실제 최강팀도 단일경기 승률 65% 넘기 어려움
+        # shrink factor 0.88 → 기존 67%는 62.6%로, 75%는 66%로 압축
+        SHRINK_FACTOR = 0.88
+        away_win_pct = round(50.0 + (away_win_pct - 50.0) * SHRINK_FACTOR, 1)
+        home_win_pct = round(100.0 - away_win_pct, 1)
 
         # ── 8. 최종 하드캡 (상대팀 강도 반영 동적 캡) ───────────────
         # 수요일은 별도 낮은 캡 적용
