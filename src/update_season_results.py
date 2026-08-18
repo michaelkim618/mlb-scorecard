@@ -60,7 +60,9 @@ def should_reset_season(existing: dict) -> bool:
 
 
 def game_key(g: dict) -> str:
-    return f"{g['date']}|{g['away']}|{g['home']}"
+    # 더블헤더는 game_number로 구분 (없으면 1로 간주)
+    gn = g.get("game_number", 1) or 1
+    return f"{g['date']}|{g['away']}|{g['home']}|G{gn}"
 
 
 def build_game_entry(g, date_str):
@@ -91,6 +93,7 @@ def build_game_entry(g, date_str):
         "date":          date_str,
         "away":          g.get("away", ""),
         "home":          g.get("home", ""),
+        "game_number":   g.get("game_number", 1) or 1,
         "pick":          pick,
         "pick_prob":     pick_prob,
         "actual_winner": g.get("actual_winner", ""),
@@ -174,7 +177,8 @@ def fetch_actual_results_from_api(game_date: str) -> dict:
                 winner = home_name
             else:
                 continue
-            key = f"{away_name}|{home_name}"
+            game_number = g.get("gameNumber", 1) or 1
+            key = f"{away_name}|{home_name}|G{game_number}"
             results[key] = winner
     print(f"  🌐 MLB API → {len(results)}경기 Final 결과 확인 ({game_date})")
     return results
@@ -243,7 +247,8 @@ def update():
                 for g in past_preds:
                     away_name = g.get("away", "")
                     home_name  = g.get("home", "")
-                    api_key = f"{away_name}|{home_name}"
+                    game_number = g.get("game_number", 1) or 1
+                    api_key = f"{away_name}|{home_name}|G{game_number}"
                     if api_key not in past_api:
                         continue
                     actual_winner = past_api[api_key]
@@ -272,7 +277,8 @@ def update():
     for g in today_from_json:
         away_name = g.get("away", "")
         home_name  = g.get("home", "")
-        api_key = f"{away_name}|{home_name}"
+        game_number = g.get("game_number", 1) or 1
+        api_key = f"{away_name}|{home_name}|G{game_number}"
 
         # API 결과를 predictions 데이터에 병합
         if api_key in api_results:
@@ -340,7 +346,8 @@ def update():
             for g in pred_data:
                 if g.get("date", "") != today_str:
                     continue
-                api_key = f"{g.get('away','')}|{g.get('home','')}"
+                game_number = g.get("game_number", 1) or 1
+                api_key = f"{g.get('away','')}|{g.get('home','')}|G{game_number}"
                 if api_key not in api_results:
                     continue
                 actual_winner = api_results[api_key]

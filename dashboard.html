@@ -1,0 +1,1899 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLB 경기 예측 대시보드</title>
+<style>
+/* ── CSS 변수 (라이트 테마) ── */
+:root {
+  --bg:          #f0f4f8;
+  --bg2:         #ffffff;
+  --card:        #ffffff;
+  --card-border: #d1dbe8;
+  --card-hover:  #f7fafc;
+  --text:        #1e293b;
+  --text-sub:    #475569;
+  --muted:       #94a3b8;
+  --accent:      #2563eb;
+  --accent-dim:  #dbeafe;
+  --green:       #16a34a;
+  --green-dim:   #bbf7d0;
+  --green-bg:    #f0fdf4;
+  --red:         #dc2626;
+  --red-dim:     #fecaca;
+  --red-bg:      #fff1f2;
+  --yellow:      #d97706;
+  --yellow-dim:  #fde68a;
+  --away-color:  #2563eb;
+  --home-color:  #16a34a;
+  --border-line: 1px solid #d1dbe8;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ══════════════════════════════════════
+   헤더
+══════════════════════════════════════ */
+header {
+  background: var(--bg2);
+  border-bottom: var(--border-line);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(0,0,0,.4);
+}
+.logo { font-size: 28px; }
+header h1 { font-size: 18px; font-weight: 700; color: var(--text); }
+header .sub { color: var(--muted); font-size: 11px; margin-top: 1px; }
+#header-stats {
+  margin-left: auto;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-sub);
+  line-height: 1.7;
+}
+
+/* ══════════════════════════════════════
+   컨트롤 바
+══════════════════════════════════════ */
+.controls {
+  background: var(--bg2);
+  border-bottom: var(--border-line);
+  padding: 10px 24px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ctrl-group { display: flex; align-items: center; gap: 7px; }
+.ctrl-group label {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.controls input[type="date"],
+.controls select {
+  background: var(--bg);
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color .15s;
+}
+.controls input[type="date"]:focus,
+.controls select:focus { border-color: var(--accent); }
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+  opacity: .5;
+}
+
+#run-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 7px 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+#run-btn:hover { opacity: .8; }
+#run-btn:disabled { opacity: .4; cursor: not-allowed; }
+#run-hint { color: var(--muted); font-size: 11px; }
+
+#history-toggle-btn {
+  background: var(--bg);
+  color: var(--text-sub);
+  border: 1px solid var(--card-border);
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s;
+}
+#history-toggle-btn:hover { background: var(--card); }
+#history-toggle-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+#run-status {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--accent);
+}
+#run-spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid #1d3a6e;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+#run-progress {
+  font-size: 11px; color: var(--muted);
+  max-width: 340px; max-height: 80px;
+  overflow-y: auto; font-family: monospace;
+  background: var(--bg2); border: var(--border-line);
+  border-radius: 6px; padding: 6px 10px;
+  margin: 0 24px 6px; display: none;
+  line-height: 1.6; white-space: pre-wrap;
+}
+
+#kalshi-badge { font-size: 11px; color: var(--muted); margin-left: 4px; white-space: nowrap; }
+
+/* ══════════════════════════════════════
+   요약 통계 바
+══════════════════════════════════════ */
+.summary-bar {
+  display: flex;
+  gap: 12px;
+  padding: 14px 24px;
+  flex-wrap: wrap;
+  background: var(--bg2);
+  border-bottom: var(--border-line);
+}
+.stat-pill {
+  background: var(--card);
+  border: var(--border-line);
+  border-radius: 10px;
+  padding: 10px 16px;
+  min-width: 110px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat-pill .s-val { font-size: 22px; font-weight: 800; line-height: 1.2; }
+.stat-pill .s-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+
+/* 정확도 배너 */
+#accuracy-banner {
+  display: none;
+  margin: 0 24px 14px;
+  background: var(--card);
+  border: var(--border-line);
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-size: 13px;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.acc-item { display: flex; align-items: center; gap: 7px; }
+.acc-num { font-size: 20px; font-weight: 700; }
+
+/* ══════════════════════════════════════
+   에러/안내
+══════════════════════════════════════ */
+#notice {
+  display: none;
+  margin: 20px 24px;
+  padding: 16px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+#notice.error { background: var(--red-bg); border: 1px solid var(--red-dim); color: #991b1b; }
+#notice.info  { background: #fffbeb; border: 1px solid var(--yellow-dim); color: #92400e; }
+#notice code  { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 4px; font-family: monospace; }
+
+/* ══════════════════════════════════════
+   카드 그리드
+══════════════════════════════════════ */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(680px, 1fr));
+  gap: 20px;
+  padding: 20px 24px 48px;
+}
+@media (max-width: 720px) {
+  .cards-grid { grid-template-columns: 1fr; padding: 14px 12px 40px; }
+  .summary-bar, .controls, header { padding-left: 12px; padding-right: 12px; }
+}
+
+/* 빈 상태 */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--muted);
+  font-size: 15px;
+  grid-column: 1 / -1;
+}
+.empty-state .emo { font-size: 40px; margin-bottom: 12px; }
+
+/* ══════════════════════════════════════
+   경기 카드
+══════════════════════════════════════ */
+.game-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: transform .15s, box-shadow .15s;
+  position: relative;
+}
+.game-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0,0,0,.35);
+}
+
+/* Value Bet 카드 강조 */
+.game-card.is-value-bet {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 1px #22c55e30, 0 4px 20px rgba(34,197,94,.12);
+}
+.game-card.is-avoid {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 1px #f59e0b30;
+}
+.game-card.is-extreme {
+  border-color: var(--red);
+  box-shadow: 0 0 0 1px #ef444430, 0 4px 20px rgba(239,68,68,.12);
+}
+.game-card.is-hit { border-color: #22c55e; }
+.game-card.is-miss { border-color: #ef4444; }
+
+/* ── 카드 헤더 ── */
+.card-header {
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+  padding: 14px 18px 12px;
+  border-bottom: var(--border-line);
+  position: relative;
+}
+
+.teams-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.team-name-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 200px;
+}
+.team-name-block.home { text-align: right; align-items: flex-end; }
+.team-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.team-standing {
+  font-size: 12px;
+  color: rgba(255,255,255,0.85);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.team-standing .rank-1 { color: #86efac; font-weight: 700; }
+.team-standing .rank-2 { color: #93c5fd; font-weight: 700; }
+
+/* Team name text */
+.team-name-text {
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Center score columns */
+.score-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 44px;
+}
+.score-big {
+  font-size: 38px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -2px;
+  color: #fde047;
+  background: transparent;
+  text-shadow: 0 0 20px rgba(253,224,71,0.3);
+}
+.score-big.live { animation: none; }
+.score-pre {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.25);
+  letter-spacing: 0.3px;
+  background: transparent;
+}
+
+/* Recent Form */
+.recent-form-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  flex-wrap: nowrap;
+}
+.recent-form-row.home { justify-content: flex-end; }
+.form-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.5);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+.form-dots {
+  display: flex;
+  gap: 3px;
+}
+.form-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 8px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+.form-dot.W { background: #16a34a; }
+.form-dot.L { background: #dc2626; }
+.form-dot.empty { background: rgba(255,255,255,0.12); }
+.form-streak {
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.form-streak.hot  { background: rgba(22,163,74,0.25);  color: #86efac; }
+.form-streak.cold { background: rgba(220,38,38,0.25);  color: #fca5a5; }
+.form-streak.neutral { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5); }
+
+/* Pitcher Gamelog Table */
+.pitcher-gamelog {
+  margin-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  padding-top: 8px;
+}
+.gl-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.4px;
+  margin-bottom: 6px;
+}
+.gl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.gl-table thead tr {
+  border-bottom: 1px solid var(--card-border);
+}
+.gl-table th {
+  color: var(--muted);
+  font-weight: 700;
+  text-align: center;
+  padding: 2px 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.gl-table td {
+  text-align: center;
+  padding: 3px 3px;
+  color: var(--text);
+  border-bottom: 1px solid var(--card-border);
+}
+.gl-table td:first-child { text-align: left; color: var(--muted); font-size: 10px; }
+.gl-table td:last-child b { font-weight: 800; }
+.gl-table tr.gl-excellent td:last-child b { color: #16a34a; }
+.gl-table tr.gl-good      td:last-child b { color: #2563eb; }
+.gl-table tr.gl-ok        td:last-child b { color: var(--text-sub); }
+.gl-table tr.gl-bad       td:last-child b { color: #dc2626; }
+.gl-table tr.gl-bad { background: rgba(220,38,38,0.06); }
+
+.vs-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.vs-text { font-size: 12px; color: rgba(255,255,255,0.8); font-weight: 600; }
+.status-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.pill-final   { background: #f0fdf4; color: #15803d; border: 1px solid #86efac; }
+.pill-live    { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; animation: blink 1.4s infinite; }
+.pill-preview { background: var(--bg); color: var(--muted); border: 1px solid var(--card-border); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+.dh-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px;
+  border-radius: 99px; white-space: nowrap;
+  background: #7c3aed22; color: #a78bfa;
+  border: 1px solid #7c3aed55; margin-top: 3px;
+  display: block; text-align: center;
+}
+.game-time-badge {
+  font-size: 10px; font-weight: 500; color: var(--muted);
+  margin-top: 2px; display: block; text-align: center;
+  white-space: nowrap;
+}
+
+/* Win Prob Bar */
+.win-prob-section { position: relative; }
+.win-prob-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 8px;
+  overflow: hidden;
+  font-weight: 700;
+}
+.prob-away {
+  background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; transition: width .4s ease;
+  font-size: 14px;
+  font-weight: 700;
+}
+.prob-home {
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; transition: width .4s ease;
+  font-size: 14px;
+  font-weight: 700;
+}
+.prob-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 5px;
+  padding: 0 2px;
+}
+.prob-labels .away-label { color: #93c5fd; font-weight: 700; }
+.prob-labels .home-label { color: #86efac; font-weight: 700; }
+
+/* ── 카드 바디 (2열) ── */
+.card-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: var(--border-line);
+}
+.team-section {
+  padding: 14px 16px;
+}
+.team-section.away { border-right: var(--border-line); }
+.section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  font-weight: 700;
+  color: var(--muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.section-label.away-label { color: var(--away-color); }
+.section-label.home-label { color: var(--home-color); }
+
+/* 투수 섹션 */
+.pitcher-block { margin-bottom: 12px; }
+.pitcher-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pitcher-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 8px;
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-bottom: 7px;
+}
+.pitcher-stat-item { white-space: nowrap; }
+.pitcher-stat-item span { color: var(--text); font-weight: 700; }
+
+.trend-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 99px;
+  margin-bottom: 5px;
+}
+.trend-hot    { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+.trend-cold   { background: #eff6ff; color: #1d4ed8; border: 1px solid #93c5fd; }
+.trend-stable { background: #f8fafc; color: var(--text-sub); border: 1px solid var(--card-border); }
+
+.pitcher-score-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.pitcher-score-val { font-size: 18px; font-weight: 800; }
+
+/* 타격 섹션 */
+.bat-block { margin-bottom: 12px; }
+.bat-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 8px;
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-bottom: 7px;
+}
+.bat-stat-item span { color: var(--text); font-weight: 700; }
+
+.explosive-stars { font-size: 15px; letter-spacing: 1px; }
+
+/* 스코어카드 섹션 */
+.scorecard-block {}
+.sc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.sc-label { width: 34px; color: var(--muted); font-weight: 700; flex-shrink: 0; font-size: 11px; }
+.sc-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.sc-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .4s ease;
+}
+.sc-fill-sp   { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+.sc-fill-bp   { background: linear-gradient(90deg, #0891b2, #22d3ee); }
+.sc-fill-bat  { background: linear-gradient(90deg, #d97706, #fbbf24); }
+.sc-fill-sit  { background: linear-gradient(90deg, #dc2626, #f87171); }
+.sc-val { width: 32px; text-align: right; font-weight: 700; color: var(--text); font-size: 12px; flex-shrink: 0; }
+
+.total-score {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--card-border);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.total-score .ts-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.total-score .ts-val { font-size: 22px; font-weight: 800; }
+.ts-val-away { color: var(--away-color); }
+.ts-val-home { color: var(--home-color); }
+
+/* ── 카드 푸터 ── */
+.card-footer {
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.value-bet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.vb-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.vb-good      { background: #f0fdf4; color: #15803d; border: 1px solid #86efac; }
+.vb-bad       { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+.vb-neut      { background: var(--bg); color: var(--muted); border: var(--border-line); }
+.vb-none      { color: var(--muted); font-size: 11px; font-style: italic; }
+.vb-consensus { background: linear-gradient(135deg,#fefce8,#fef9c3); color: #78350f; border: 1px solid #fbbf24; font-weight: 700; }
+.vb-extreme {
+  background: #fff1f2;
+  color: #ff6b6b;
+  border: 1px solid #ff4444;
+  animation: pulse-warn 1.5s ease-in-out infinite;
+}
+@keyframes pulse-warn {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,68,68,.4); }
+  50%      { box-shadow: 0 0 0 4px rgba(255,68,68,0); }
+}
+
+.market-info {
+  font-size: 12px;
+  color: var(--text-sub);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.market-info .mi-item { white-space: nowrap; }
+.edge-pos { color: var(--green); font-weight: 700; }
+.edge-neg { color: var(--red);   font-weight: 700; }
+.edge-neu { color: var(--muted); font-weight: 700; }
+
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.result-score {
+  font-size: 18px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.r-winner { color: var(--green); }
+.r-loser  { color: #475569; }
+.r-sep    { color: #334155; }
+.r-label  { font-size: 10px; color: var(--muted); }
+
+.verdict-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 6px;
+}
+.verdict-hit  { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-dim); }
+.verdict-miss { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-dim); }
+
+/* 태그 행 */
+.tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.reason-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.rtag-blue   { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+.rtag-green  { background: #f0fdf4; color: #15803d; }
+.rtag-red    { background: #fff1f2; color: #991b1b; }
+.rtag-orange { background: #fff7ed; color: #c2410c; }
+.rtag-gray   { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+.rtag-purple { background: #f5f3ff; color: #6d28d9; border: 1px solid #c4b5fd; }
+.rtag-warn   { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.rtag-fire   { background: #fff7ed; color: #c2410c; border: 1px solid #fdba74; }
+
+/* ══════════════════════════════════════
+   히스토리 섹션
+══════════════════════════════════════ */
+#history-section {
+  background: var(--bg2);
+  border-bottom: 2px solid var(--card-border);
+  padding: 18px 24px 22px;
+  display: none;
+}
+#history-section h2 {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.hist-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.hist-tab {
+  padding: 9px 14px; border-radius: 10px;
+  border: 1px solid var(--card-border);
+  background: var(--card); cursor: pointer;
+  text-align: center; min-width: 88px;
+  transition: all .15s; user-select: none;
+}
+.hist-tab:hover { border-color: var(--accent); }
+.hist-tab.active { border-color: var(--accent); background: var(--accent-dim); box-shadow: 0 0 0 2px #1d4ed850; }
+.hist-tab .htdate { font-size: 11px; font-weight: 600; color: var(--muted); }
+.hist-tab .htacc  { font-size: 20px; font-weight: 800; line-height: 1.2; margin: 2px 0; }
+.hist-tab .htsub  { font-size: 10px; color: var(--muted); }
+.hist-tab.acc-high .htacc { color: var(--green); }
+.hist-tab.acc-mid  .htacc { color: var(--yellow); }
+.hist-tab.acc-low  .htacc { color: var(--red); }
+
+#history-cumulative {
+  background: var(--card); border: var(--border-line); border-radius: 10px;
+  padding: 12px 18px; margin-bottom: 16px;
+  display: flex; gap: 28px; align-items: center; flex-wrap: wrap;
+}
+.hcum-block { text-align: center; }
+.hcum-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.hcum-val   { font-size: 22px; font-weight: 800; line-height: 1.2; }
+
+.hist-table-wrap { overflow-x: auto; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+#history-table {
+  width: 100%; border-collapse: collapse; min-width: 640px;
+  font-size: 13px; background: var(--card);
+}
+#history-table thead th {
+  background: var(--bg); color: var(--muted); text-align: left;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+  padding: 9px 12px; border-bottom: 2px solid var(--card-border); white-space: nowrap;
+}
+#history-table tbody tr { border-bottom: 1px solid var(--card-border); transition: background .1s; }
+#history-table tbody tr:hover { background: var(--card-hover); }
+#history-table tbody tr.h-hit  { background: #f0fdf480; }
+#history-table tbody tr.h-miss { background: #fff1f240; }
+#history-table td { padding: 10px 12px; vertical-align: middle; }
+.h-matchup-teams { font-weight: 600; font-size: 14px; }
+.h-matchup-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.h-score  { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.h-score .w { color: var(--green); }
+.h-score .l { color: #475569; }
+.h-score .s { color: #334155; margin: 0 4px; }
+.h-verdict { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 5px; white-space: nowrap; }
+.h-verdict.hit  { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-dim); }
+.h-verdict.miss { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-dim); }
+.h-verdict.pend { background: var(--bg); color: var(--muted); border: var(--border-line); }
+#history-loading { text-align: center; padding: 28px; color: var(--muted); font-size: 13px; }
+
+/* 섹션 구분선 */
+.section-divider {
+  height: 1px;
+  background: var(--card-border);
+  margin: 10px 0;
+}
+</style>
+</head>
+<body>
+
+<!-- ── 헤더 ── -->
+<header>
+  <span class="logo">⚾</span>
+  <div>
+    <h1>MLB 경기 예측 대시보드</h1>
+    <div class="sub">Monte Carlo 시뮬레이션 · Kalshi 마켓 · 실제 경기 결과 비교</div>
+  </div>
+  <div id="header-stats">데이터 로딩 중…</div>
+</header>
+
+<!-- ── 컨트롤 바 ── -->
+<div class="controls">
+  <div class="ctrl-group">
+    <label>날짜</label>
+    <input type="date" id="date-picker" value="">
+  </div>
+  <div class="ctrl-group">
+    <label>필터</label>
+    <select id="filter-vb">
+      <option value="all">전체</option>
+      <option value="consensus">⭐ 고신뢰 예측</option>
+      <option value="value">✅ Value Bet 후보</option>
+      <option value="avoid">⚠️ 회피 권장</option>
+      <option value="neutral">➖ 시장과 유사</option>
+      <option value="nomarket">마켓 없음</option>
+    </select>
+  </div>
+  <div class="ctrl-group">
+    <label>팀</label>
+    <select id="filter-team">
+      <option value="all">전체 팀</option>
+    </select>
+  </div>
+  <button id="history-toggle-btn" onclick="toggleHistory()">📅 성적 히스토리</button>
+  <a href="history.html" target="_blank" style="background:var(--bg);border:var(--border-line);color:var(--text-sub);padding:7px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:5px;">🔗 히스토리 전체보기</a>
+  <div id="run-hint"></div>
+  <button id="run-btn" onclick="fetchAndReload()">🔄 불러오기</button>
+  <span id="kalshi-badge"></span>
+  <div id="run-status">
+    <span id="run-spinner"></span>
+    <span id="run-status-text">MLB 데이터 수집 중…</span>
+  </div>
+</div>
+<div id="run-progress"></div>
+
+<!-- ── 히스토리 섹션 ── -->
+<div id="history-section">
+  <h2>📅 일자별 예측 성적 히스토리</h2>
+  <div class="hist-tabs" id="hist-tabs-row">
+    <div id="history-loading">히스토리 데이터 로딩 중…</div>
+  </div>
+  <div id="history-cumulative" style="display:none">
+    <div class="hcum-block">
+      <div class="hcum-label">누계 적중</div>
+      <div class="hcum-val" id="hcum-hits" style="color:var(--green)">—</div>
+    </div>
+    <div class="hcum-block">
+      <div class="hcum-label">누계 경기</div>
+      <div class="hcum-val" id="hcum-total">—</div>
+    </div>
+    <div class="hcum-block">
+      <div class="hcum-label">누계 정확도</div>
+      <div class="hcum-val" id="hcum-pct">—</div>
+    </div>
+    <div class="hcum-block">
+      <div class="hcum-label">최고 일일 정확도</div>
+      <div class="hcum-val" id="hcum-best" style="color:var(--accent)">—</div>
+    </div>
+  </div>
+  <div class="hist-table-wrap">
+    <table id="history-table" style="display:none">
+      <thead>
+        <tr>
+          <th>매치업</th>
+          <th>예측 팀</th>
+          <th style="text-align:center">예측 확률</th>
+          <th style="text-align:center">실제 점수</th>
+          <th style="text-align:center">결과</th>
+        </tr>
+      </thead>
+      <tbody id="hist-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── 안내 메시지 ── -->
+<div id="notice"></div>
+
+<!-- ── 메인 콘텐츠 ── -->
+<div id="main-content" style="display:none">
+  <div class="summary-bar" id="summary-bar"></div>
+  <div id="accuracy-banner"></div>
+  <div class="cards-grid" id="cards-grid"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  전역 상태
+// ══════════════════════════════════════════════════════
+let allData = [];
+let currentDate = '';
+
+const SERVER_URL = 'http://localhost:5959';
+const IS_SERVER  = location.protocol !== 'file:';
+let _pollTimer   = null;
+
+// ── Kalshi 폴링 ────────────────────────────────────────
+let _kalshiPollTimer = null;
+let _kalshiLastCount = -1;
+let _kalshiLastRun   = 0;
+const KALSHI_POLL_MS = 5 * 60 * 1000;
+
+async function _checkKalshiUpdate() {
+  if (!IS_SERVER) return;
+  try {
+    const r = await fetch(`${SERVER_URL}/api/kalshi_status?date=${currentDate}`);
+    if (!r.ok) return;
+    const info = await r.json();
+    const count   = info.market_count ?? -1;
+    const lastRun = info.last_run     ?? 0;
+    const fileExists = info.file_exists ?? false;
+    _updateKalshiBadge(count);
+    if (lastRun > _kalshiLastRun && lastRun > 0) {
+      _kalshiLastRun = lastRun;
+      if (fileExists) {
+        _showKalshiToast(`Kalshi 마켓 업데이트 감지 → 데이터 자동 갱신 중…`);
+        setTimeout(() => _loadScript(currentDate), 1500);
+      }
+    }
+    _kalshiLastCount = count;
+  } catch(e) {}
+}
+
+function _updateKalshiBadge(count) {
+  const badge = document.getElementById('kalshi-badge');
+  if (!badge) return;
+  if (count < 0)      { badge.textContent = '⚡ Kalshi 확인 중…'; badge.style.color = 'var(--muted)'; }
+  else if (count === 0) { badge.textContent = '⚡ Kalshi 마켓 미오픈'; badge.style.color = 'var(--muted)'; }
+  else { badge.textContent = `⚡ Kalshi ${count}경기 마켓 오픈`; badge.style.color = 'var(--green)'; }
+}
+
+function _showKalshiToast(msg) {
+  let t = document.getElementById('kalshi-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'kalshi-toast';
+    t.style.cssText = `position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;
+      padding:12px 18px;border-radius:10px;font-size:13px;z-index:9999;
+      box-shadow:0 4px 16px rgba(0,0,0,.5);transition:opacity .4s`;
+    document.body.appendChild(t);
+  }
+  t.textContent = msg; t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 4000);
+}
+
+function _startKalshiPolling() {
+  if (!IS_SERVER) return;
+  _checkKalshiUpdate();
+  clearInterval(_kalshiPollTimer);
+  _kalshiPollTimer = setInterval(_checkKalshiUpdate, KALSHI_POLL_MS);
+}
+function _resetKalshiState() { _kalshiLastCount = -1; _kalshiLastRun = 0; _startKalshiPolling(); }
+
+// ── 날짜 초기화 ────────────────────────────────────────
+(function initDate() {
+  const today = new Date();
+  const iso   = today.toISOString().slice(0, 10);
+  document.getElementById('date-picker').value = iso;
+  currentDate = iso;
+  loadDateData(iso);
+  _startKalshiPolling();
+})();
+
+document.getElementById('date-picker').addEventListener('change', function() {
+  currentDate = this.value;
+  loadDateData(currentDate);
+  _resetKalshiState();
+});
+
+// ── 불러오기 버튼 ─────────────────────────────────────
+async function fetchAndReload() {
+  if (IS_SERVER) await runPipeline(currentDate);
+  else loadDateData(currentDate);
+}
+
+async function runPipeline(dateStr) {
+  const btn = document.getElementById('run-btn');
+  const statusEl = document.getElementById('run-status');
+  const progEl   = document.getElementById('run-progress');
+  const txtEl    = document.getElementById('run-status-text');
+  btn.disabled = true;
+  statusEl.style.display = 'flex';
+  progEl.style.display   = 'block';
+  progEl.textContent     = '';
+  txtEl.textContent      = 'MLB 데이터 수집 중…';
+  showNotice('', '');
+  try {
+    const res  = await fetch(`${SERVER_URL}/api/run?date=${dateStr}`);
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 409) { txtEl.textContent = '이미 실행 중…'; _startPolling(dateStr); return; }
+      throw new Error(data.error || '서버 오류');
+    }
+    _startPolling(dateStr);
+  } catch(e) {
+    _resetBtn();
+    showNotice('error', `<strong>서버 연결 실패</strong><br>터미널에서 <code>python3 server.py</code> 를 먼저 실행해주세요.<br><small style="opacity:.7">${e.message}</small>`);
+  }
+}
+
+function _startPolling(dateStr) {
+  clearInterval(_pollTimer);
+  let lastLogLen = 0;
+  _pollTimer = setInterval(async () => {
+    try {
+      const res  = await fetch(`${SERVER_URL}/api/status`);
+      const data = await res.json();
+      const progEl = document.getElementById('run-progress');
+      const txtEl  = document.getElementById('run-status-text');
+      if (data.log && data.log.length > lastLogLen) {
+        const newLines = data.log.slice(lastLogLen);
+        progEl.textContent += newLines.join('\n') + '\n';
+        progEl.scrollTop = progEl.scrollHeight;
+        lastLogLen = data.log.length;
+        const m = (newLines.join(' ')).match(/\[(\d+)\/(\d+)\]/);
+        if (m) txtEl.textContent = `데이터 수집 중… (${m[1]}/${m[2]}경기)`;
+      }
+      if (data.done) {
+        clearInterval(_pollTimer);
+        _resetBtn();
+        if (data.error) showNotice('error', `<strong>실행 오류</strong><br>${data.error}`);
+        else {
+          txtEl.textContent = '완료! 데이터 로딩 중…';
+          setTimeout(() => {
+            document.getElementById('run-status').style.display = 'none';
+            document.getElementById('run-progress').style.display = 'none';
+            _loadScript(dateStr);
+          }, 600);
+        }
+      }
+    } catch(e) { clearInterval(_pollTimer); _resetBtn(); }
+  }, 1200);
+}
+
+function _resetBtn() {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = false;
+  document.getElementById('run-status').style.display = 'none';
+}
+
+// ── 데이터 로드 ────────────────────────────────────────
+async function loadDateData(dateStr) {
+  showNotice('', '');
+  document.getElementById('main-content').style.display = 'none';
+  document.getElementById('header-stats').textContent = '로딩 중…';
+  if (IS_SERVER) {
+    try {
+      const chk  = await fetch(`${SERVER_URL}/api/check?date=${dateStr}`);
+      const info = await chk.json();
+      if (!info.exists) { await runPipeline(dateStr); return; }
+    } catch(e) {}
+  }
+  _loadScript(dateStr);
+}
+
+function _loadScript(dateStr) {
+  window.PREDICTIONS_DATA = undefined;
+  const old = document.getElementById('_dyn_script');
+  if (old) old.remove();
+  const s = document.createElement('script');
+  s.id  = '_dyn_script';
+  s.src = IS_SERVER
+    ? `${SERVER_URL}/output/predictions_${dateStr}.js?t=${Date.now()}`
+    : `output/predictions_${dateStr}.js`;
+  s.onload = function() {
+    if (typeof window.PREDICTIONS_DATA !== 'undefined' && window.PREDICTIONS_DATA.length) {
+      allData = window.PREDICTIONS_DATA;
+      initUI();
+      document.getElementById('main-content').style.display = 'block';
+    } else showNoData(dateStr);
+  };
+  s.onerror = function() { showNoData(dateStr); };
+  document.head.appendChild(s);
+}
+
+function showNoData(dateStr) {
+  showNotice('error',
+    `<strong>${dateStr} 데이터 파일이 없습니다.</strong><br>` +
+    (IS_SERVER
+      ? `🔄 불러오기 버튼을 누르면 자동으로 수집합니다.`
+      : `터미널에서 아래 명령을 실행한 뒤 다시 불러오기 버튼을 눌러주세요:<br><br><code>python3 main.py --date ${dateStr}</code><br><br>또는 <code>python3 server.py</code> 로 서버를 실행하면 버튼 하나로 자동 수집됩니다.`)
+  );
+  document.getElementById('header-stats').textContent = '데이터 없음';
+}
+
+function showNotice(type, html) {
+  const el = document.getElementById('notice');
+  if (!type) { el.style.display = 'none'; return; }
+  el.className = type;
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
+// ── UI 초기화 ─────────────────────────────────────────
+function initUI() {
+  const teamSel = document.getElementById('filter-team');
+  teamSel.innerHTML = '<option value="all">전체 팀</option>';
+  const teams = [...new Set(allData.flatMap(d => [d.away, d.home]))].sort();
+  teams.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = t;
+    teamSel.appendChild(o);
+  });
+  const date = allData[0]?.date || currentDate;
+  document.getElementById('header-stats').innerHTML =
+    `📅 ${date} &nbsp;|&nbsp; 총 ${allData.length}경기`;
+  renderCards();
+}
+
+// ══════════════════════════════════════════════════════
+//  필터 & 렌더
+// ══════════════════════════════════════════════════════
+function renderCards() {
+  const vbFilter   = document.getElementById('filter-vb').value;
+  const teamFilter = document.getElementById('filter-team').value;
+
+  const filtered = allData.filter(d => {
+    const vb = d.value_bet || '';
+    if (vbFilter === 'consensus' && d.consensus !== true)  return false;
+    if (vbFilter === 'value'    && !vb.startsWith('✅')) return false;
+    if (vbFilter === 'avoid'    && !vb.startsWith('⚠️')) return false;
+    if (vbFilter === 'neutral'  && !vb.startsWith('➖')) return false;
+    if (vbFilter === 'nomarket' && vb !== '마켓 없음')   return false;
+    if (teamFilter !== 'all' && d.away !== teamFilter && d.home !== teamFilter) return false;
+    return true;
+  });
+
+  renderSummary(filtered);
+
+  const grid = document.getElementById('cards-grid');
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="emo">⚾</div>해당 조건의 경기가 없습니다.</div>`;
+    return;
+  }
+  grid.innerHTML = filtered.map(buildCard).join('');
+}
+
+document.getElementById('filter-vb').addEventListener('change', renderCards);
+document.getElementById('filter-team').addEventListener('change', renderCards);
+
+// ── 요약 통계 ─────────────────────────────────────────
+function renderSummary(data) {
+  const total    = data.length;
+  const consensus= data.filter(d => d.consensus === true).length;
+  const value    = data.filter(d => (d.value_bet||'').startsWith('✅')).length;
+  const extreme  = data.filter(d => (d.value_bet||'').startsWith('🚨')).length;
+  const avoid    = data.filter(d => (d.value_bet||'').startsWith('⚠️')).length;
+  const noMkt    = data.filter(d => d.value_bet === '마켓 없음').length;
+  const finals   = data.filter(d => d.status === 'Final').length;
+  const withLineup = data.filter(d => d.scorecard?.bat_source === 'lineup').length;
+
+  document.getElementById('summary-bar').innerHTML = `
+    <div class="stat-pill"><div class="s-val" style="color:var(--accent)">${total}</div><div class="s-lbl">표시 경기</div></div>
+    ${consensus ? `<div class="stat-pill" style="border-color:#fbbf24;background:#fefce8"><div class="s-val" style="color:#78350f">${consensus}</div><div class="s-lbl">⭐ 고신뢰</div></div>` : ''}
+    ${extreme ? `<div class="stat-pill" style="border-color:var(--red)"><div class="s-val" style="color:var(--red)">${extreme}</div><div class="s-lbl">🚨 극단 예측</div></div>` : ''}
+    <div class="stat-pill"><div class="s-val" style="color:var(--green)">${value}</div><div class="s-lbl">✅ Value Bet</div></div>
+    <div class="stat-pill"><div class="s-val" style="color:var(--yellow)">${avoid}</div><div class="s-lbl">⚠️ 회피 권장</div></div>
+    <div class="stat-pill"><div class="s-val" style="color:var(--accent)">${withLineup}</div><div class="s-lbl">✅ 확정 라인업</div></div>
+    <div class="stat-pill"><div class="s-val" style="color:var(--muted)">${noMkt}</div><div class="s-lbl">마켓 없음</div></div>
+    <div class="stat-pill"><div class="s-val">${finals}</div><div class="s-lbl">경기 완료</div></div>
+  `;
+
+  // 정확도 배너
+  const completed = data.filter(d => d.model_correct !== null && d.model_correct !== undefined);
+  const banner = document.getElementById('accuracy-banner');
+  if (completed.length) {
+    const hits   = completed.filter(d => d.model_correct).length;
+    const misses = completed.filter(d => !d.model_correct).length;
+    const pct    = Math.round(hits / completed.length * 100);
+    banner.style.display = 'flex';
+    banner.innerHTML = `
+      <span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600">모델 적중률</span>
+      <div class="acc-item"><span class="acc-num" style="color:var(--green)">${hits}</span><span style="color:var(--muted)">적중</span></div>
+      <div class="acc-item"><span class="acc-num" style="color:var(--red)">${misses}</span><span style="color:var(--muted)">빗나감</span></div>
+      <div class="acc-item">
+        <span class="acc-num" style="color:${pct>=55?'var(--green)':pct>=45?'var(--yellow)':'var(--red)'}">${pct}%</span>
+        <span style="color:var(--muted)">정확도 (${completed.length}경기)</span>
+      </div>`;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  카드 빌더
+// ══════════════════════════════════════════════════════
+function buildCard(d) {
+  const st     = d.status || '';
+  const aw     = +(d.win_prob?.away ?? 0).toFixed(1);
+  const hw     = +(d.win_prob?.home ?? 0).toFixed(1);
+  const sc     = d.scorecard || {};
+  const awSc   = sc.away || {};
+  const hwSc   = sc.home || {};
+  const vb     = d.value_bet || '—';
+
+  // 카드 클래스
+  let cardCls = 'game-card';
+  if (vb.startsWith('🚨'))       cardCls += ' is-extreme';
+  else if (vb.startsWith('✅'))  cardCls += ' is-value-bet';
+  else if (vb.startsWith('⚠️')) cardCls += ' is-avoid';
+  if (d.model_correct === true)   cardCls += ' is-hit';
+  if (d.model_correct === false)  cardCls += ' is-miss';
+
+  const pillCls = st==='Final'?'pill-final':st==='Live'?'pill-live':'pill-preview';
+  const pillTxt = st==='Final'?'종료':st==='Live'?'⚡ 진행중':'예정';
+
+  return `
+<div class="${cardCls}">
+  ${buildCardHeader(d, aw, hw, pillCls, pillTxt)}
+  ${buildCardBody(d, awSc, hwSc)}
+  ${buildCardFooter(d, aw, hw, vb)}
+</div>`;
+}
+
+// ── 카드 헤더 ─────────────────────────────────────────
+function buildRecentForm(form, isHome) {
+  if (!form || !form.games) return '';
+  const games = form.games.slice(-5);
+  const dots = [];
+  for (let i = 0; i < 5; i++) {
+    const g = games[i];
+    dots.push(g
+      ? `<div class="form-dot ${g.result}" title="${g.date} ${g.score}">${g.result}</div>`
+      : `<div class="form-dot empty"></div>`
+    );
+  }
+  const streak = form.streak || 0;
+  const streakCls = streak >= 3 ? 'hot' : streak <= -3 ? 'cold' : 'neutral';
+  const streakTxt = streak > 0 ? `${streak}연승` : streak < 0 ? `${Math.abs(streak)}연패` : '-';
+  const wl = `${form.wins}승${form.losses}패`;
+  const rowCls = isHome ? 'recent-form-row home' : 'recent-form-row';
+  if (isHome) {
+    return `<div class="${rowCls}">
+      <span class="form-streak ${streakCls}">${streakTxt}</span>
+      <div class="form-dots">${dots.join('')}</div>
+      <span class="form-label">최근5 ${wl}</span>
+    </div>`;
+  }
+  return `<div class="${rowCls}">
+    <span class="form-label">최근5 ${wl}</span>
+    <div class="form-dots">${dots.join('')}</div>
+    <span class="form-streak ${streakCls}">${streakTxt}</span>
+  </div>`;
+}
+
+function buildCardHeader(d, aw, hw, pillCls, pillTxt) {
+  function standingText(st) {
+    if (!st || st.div_rank == null) return '';
+    const cls = st.div_rank === 1 ? 'rank-1' : st.div_rank <= 2 ? 'rank-2' : '';
+    const gb  = (st.games_back && st.games_back !== '-') ? `GB ${st.games_back}` : '선두';
+    const wl  = (st.wins != null && st.losses != null) ? `${st.wins}W-${st.losses}L` : '';
+    const div = (st.div_name || '').replace('American League', 'AL').replace('National League', 'NL');
+    return `<span class="${cls}">${div} ${st.div_rank}위</span> · ${wl} · ${gb}`;
+  }
+
+  const status = d.status || '';
+  const aScore = d.actual_score?.away;
+  const hScore = d.actual_score?.home;
+
+  function buildScoreCol(myScore) {
+    if ((status === 'Final' || status === 'Live') && myScore != null) {
+      const liveCls = status === 'Live' ? ' live' : '';
+      return `<div class="score-col"><span class="score-big${liveCls}">${myScore}</span></div>`;
+    }
+    return `<div class="score-col"><span class="score-pre">경기 전</span></div>`;
+  }
+
+  return `
+  <div class="card-header">
+    <div class="teams-row">
+      <div class="team-name-block away">
+        <div class="team-name-text">✈️ ${esc(d.away)}</div>
+        <div class="team-standing">${standingText(d.away_standing)}</div>
+        ${buildRecentForm(d.away_recent_form, false)}
+      </div>
+      ${buildScoreCol(aScore)}
+      <div class="vs-block">
+        <div class="vs-text">@ 원정</div>
+        <span class="status-pill ${pillCls}">${pillTxt}</span>
+        ${d.doubleheader ? `<span class="dh-badge">DH G${d.game_number}</span>` : ''}
+        ${d.game_time ? `<span class="game-time-badge">${d.game_time}</span>` : ''}
+      </div>
+      ${buildScoreCol(hScore)}
+      <div class="team-name-block home">
+        <div class="team-name-text" style="text-align:right">🏠 ${esc(d.home)}</div>
+        <div class="team-standing">${standingText(d.home_standing)}</div>
+        ${buildRecentForm(d.home_recent_form, true)}
+      </div>
+    </div>
+    <div class="win-prob-section">
+      <div class="win-prob-bar">
+        <div class="prob-away" style="width:${aw}%">${aw >= 15 ? aw+'%' : ''}</div>
+        <div class="prob-home" style="width:${hw}%">${hw >= 15 ? hw+'%' : ''}</div>
+      </div>
+      <div class="prob-labels">
+        <span class="away-label">원정 ${aw}%</span>
+        <span style="color:rgba(255,255,255,0.85);font-size:12px;font-weight:600">WIN PROBABILITY</span>
+        <span class="home-label">홈 ${hw}%</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── 카드 바디 ─────────────────────────────────────────
+function buildCardBody(d, awSc, hwSc) {
+  return `
+  <div class="card-body">
+    ${buildTeamSection(d, 'away', awSc)}
+    ${buildTeamSection(d, 'home', hwSc)}
+  </div>`;
+}
+
+function buildPitcherGamelog(gamelog) {
+  if (!gamelog || gamelog.length === 0) return '';
+  const rows = gamelog.map(g => {
+    const ip   = g.ip || '—';
+    const er   = g.er != null ? g.er : '—';
+    const h    = g.h  != null ? g.h  : '—';
+    const bb   = g.bb != null ? g.bb : '—';
+    const so   = g.so != null ? g.so : '—';
+    const era  = g.era != null ? g.era.toFixed(2) : '—';
+    const date = (g.date || '').slice(5); // MM-DD
+    const opp  = g.opp || '';
+    // 경기별 색상: ERA 기준
+    const eraCls = g.era == null ? '' : g.era <= 2.0 ? 'gl-excellent' : g.era <= 3.5 ? 'gl-good' : g.era <= 5.5 ? 'gl-ok' : 'gl-bad';
+    return `<tr class="${eraCls}">
+      <td>${date}<span style="margin-left:4px;opacity:0.6;font-size:9px;">${opp}</span></td>
+      <td>${ip}</td>
+      <td>${h}</td>
+      <td>${er}</td>
+      <td>${bb}</td>
+      <td>${so}</td>
+      <td><b>${era}</b></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="pitcher-gamelog">
+      <div class="gl-title">📅 최근 5경기</div>
+      <table class="gl-table">
+        <thead><tr><th>날짜</th><th>IP</th><th>H</th><th>ER</th><th>BB</th><th>K</th><th>ERA</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function buildTeamSection(d, side, sc) {
+  const isAway = side === 'away';
+  const teamName = isAway ? d.away : d.home;
+  const pitcherName = isAway ? d.away_pitcher : d.home_pitcher;
+  const pitcherStats = isAway ? d.away_pitcher_stats : d.home_pitcher_stats;
+  const pitcherGamelog = isAway ? d.away_pitcher_gamelog : d.home_pitcher_gamelog;
+  const labelCls = isAway ? 'away-label' : 'home-label';
+  const icon = isAway ? '✈️' : '🏠';
+
+  return `
+    <div class="team-section ${side}">
+      <div class="section-label ${labelCls}">${icon} ${esc(teamName)}</div>
+
+      <!-- 선발 투수 -->
+      <div class="pitcher-block">
+        <div class="section-label" style="color:var(--muted);margin-bottom:6px;justify-content:space-between">
+          <span>⚾ 선발투수</span>
+          <span style="font-size:16px;font-weight:800;color:${isAway?'var(--away-color)':'var(--home-color)'};letter-spacing:-0.5px">${fmt1(sc.sp_score)}<span style="font-size:10px;font-weight:600;color:var(--muted);margin-left:2px">pts</span></span>
+        </div>
+        <div class="pitcher-name">${esc(pitcherName || 'TBD')}</div>
+        ${buildPitcherStats(pitcherStats, sc)}
+        ${buildTrendBadge(sc.sp_detail)}
+        ${buildPitcherGamelog(pitcherGamelog)}
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- 타격 흐름 -->
+      <div class="bat-block" style="margin-top:10px">
+        <div class="section-label" style="color:var(--muted);margin-bottom:6px;justify-content:space-between">
+          <span>🏏 최근 타격 흐름</span>
+          <span style="font-size:16px;font-weight:800;color:${isAway?'var(--away-color)':'var(--home-color)'};letter-spacing:-0.5px">${fmt1(sc.bat_score)}<span style="font-size:10px;font-weight:600;color:var(--muted);margin-left:2px">pts</span></span>
+        </div>
+        ${buildBatStats(sc.bat_detail)}
+      </div>
+
+      <div class="section-divider"></div>
+
+      <!-- 스코어카드 -->
+      <div class="scorecard-block" style="margin-top:10px">
+        <div class="section-label" style="color:var(--muted);margin-bottom:6px">📊 스코어카드</div>
+        ${buildScorecard(sc, isAway)}
+        <div class="total-score">
+          <div class="ts-label">총점</div>
+          <div class="ts-val ${isAway?'ts-val-away':'ts-val-home'}">${fmt1(sc.total)}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function buildPitcherStats(stats, sc) {
+  const s = stats || {};
+  const spd = sc.sp_detail || {};
+  const era  = s.era   != null ? s.era : (spd.era   != null ? spd.era.toFixed(2)   : '—');
+  const whip = spd.whip != null ? spd.whip.toFixed(2) : '—';
+  const k9   = spd.k9   != null ? spd.k9.toFixed(1)  : '—';
+  const ip   = spd.avg_ip != null ? spd.avg_ip.toFixed(1) : '—';
+  const l3era = spd.last3_era != null ? spd.last3_era.toFixed(2) : '—';
+  const wl   = (s.wins != null && s.losses != null) ? `${s.wins}승 ${s.losses}패` : '—';
+  return `
+    <div class="pitcher-stats">
+      <div class="pitcher-stat-item">ERA <span>${era}</span></div>
+      <div class="pitcher-stat-item">WHIP <span>${whip}</span></div>
+      <div class="pitcher-stat-item">K/9 <span>${k9}</span></div>
+      <div class="pitcher-stat-item">평균 IP <span>${ip}</span></div>
+      <div class="pitcher-stat-item">최근5 ERA <span>${l3era}</span></div>
+      <div class="pitcher-stat-item">시즌 <span>${wl}</span></div>
+    </div>`;
+}
+
+function buildTrendBadge(spd) {
+  if (!spd) return '';
+  const trend = (spd.trend || '').toLowerCase();
+  let badge = '';
+  if (trend === 'hot')        badge = `<span class="trend-badge trend-hot">🔥 Hot</span>`;
+  else if (trend === 'cold')  badge = `<span class="trend-badge trend-cold">🥶 Cold</span>`;
+  else                        badge = `<span class="trend-badge trend-stable">➡️ Stable</span>`;
+
+  // 휴식일 배지
+  const rest = spd.rest_days;
+  const restNote = spd.rest_note;
+  let restBadge = '';
+  if (restNote === 'short_rest')
+    restBadge = `<span class="trend-badge" style="background:#fff1f2;color:#991b1b;border:1px solid #fca5a5">⚡ 단기휴식 ${rest}일</span>`;
+  else if (restNote === 'extra_rest')
+    restBadge = `<span class="trend-badge" style="background:#f0fdf4;color:#166534;border:1px solid #86efac">💤 충분휴식 ${rest}일</span>`;
+  else if (rest != null)
+    restBadge = `<span class="trend-badge trend-stable">휴식 ${rest}일</span>`;
+
+  // 소수 샘플 배지
+  const conf = spd.sample_confidence;
+  const ng = spd.n_games ?? 0;
+  let sampleBadge = '';
+  if (conf != null && conf < 1.0)
+    sampleBadge = `<span class="trend-badge" style="background:#fefce8;color:#854d0e;border:1px solid #fde047">📊 샘플 ${ng}경기</span>`;
+
+  return badge + restBadge + sampleBadge;
+}
+
+function buildBatStats(bd) {
+  if (!bd) return '<div style="font-size:11px;color:var(--muted)">타격 데이터 없음</div>';
+  const avg  = bd.recent_avg  != null ? '.'+String(Math.round(bd.recent_avg*1000)).padStart(3,'0') : '—';
+  const ops  = bd.season_ops  != null ? bd.season_ops.toFixed(3) : '—';
+  const rpg  = bd.runs_per_g  != null ? bd.runs_per_g.toFixed(1) : '—';
+  const hrpg = bd.hr_per_g    != null ? bd.hr_per_g.toFixed(1)   : '—';
+  const exp  = bd.explosive_games ?? 0;
+  const stars = explosiveStars(exp);
+  return `
+    <div class="bat-stats">
+      <div class="bat-stat-item">타율 <span>${avg}</span></div>
+      <div class="bat-stat-item">OPS <span>${ops}</span></div>
+      <div class="bat-stat-item">득점/경기 <span>${rpg}</span></div>
+      <div class="bat-stat-item">HR/경기 <span>${hrpg}</span></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted)">폭발 게임 <span class="explosive-stars">${stars}</span></div>`;
+}
+
+function explosiveStars(n) {
+  if (n >= 3) return '★★★';
+  if (n === 2) return '★★☆';
+  if (n === 1) return '★☆☆';
+  return '☆☆☆';
+}
+
+function buildScorecard(sc, isAway) {
+  const colorClass = isAway ? 'sc-fill-sp' : 'sc-fill-sp';
+  function bar(val, fillCls) {
+    const pct = Math.min(100, Math.max(0, val || 0));
+    return `<div class="sc-bar-track"><div class="sc-bar-fill ${fillCls}" style="width:${pct}%"></div></div>`;
+  }
+  const sp  = sc.sp_score  ?? 0;
+  const bp  = sc.bp_score  ?? 0;
+  const bat = sc.bat_score ?? 0;
+  const sit = sc.sit_score ?? 0;
+  return `
+    <div class="sc-row"><div class="sc-label">SP</div>${bar(sp,'sc-fill-sp')}<div class="sc-val">${fmt0(sp)}</div></div>
+    <div class="sc-row"><div class="sc-label">BP</div>${bar(bp,'sc-fill-bp')}<div class="sc-val">${fmt0(bp)}</div></div>
+    <div class="sc-row"><div class="sc-label">타선</div>${bar(bat,'sc-fill-bat')}<div class="sc-val">${fmt0(bat)}</div></div>
+    <div class="sc-row"><div class="sc-label">상황</div>${bar(sit,'sc-fill-sit')}<div class="sc-val">${fmt0(sit)}</div></div>`;
+}
+
+// ── 카드 푸터 ─────────────────────────────────────────
+function buildCardFooter(d, aw, hw, vb) {
+  const parts = [];
+
+  // Value Bet + Market 정보
+  let vbCls = 'vb-neut';
+  if (vb.startsWith('🚨'))       vbCls = 'vb-extreme';
+  else if (vb.startsWith('⭐'))  vbCls = 'vb-consensus';
+  else if (vb.startsWith('✅'))  vbCls = 'vb-good';
+  else if (vb.startsWith('⚠️')) vbCls = 'vb-bad';
+  else if (vb === '마켓 없음')   vbCls = 'vb-none';
+
+  const kalshiHtml = (d.kalshi_prob != null)
+    ? `<span class="mi-item">Kalshi 홈 <b style="color:var(--home-color)">${d.kalshi_prob}%</b></span>`
+    : '';
+
+  const edge  = d.edge;
+  const eCls  = edge == null ? 'edge-neu' : edge >= 5 ? 'edge-pos' : edge <= -5 ? 'edge-neg' : 'edge-neu';
+  const eStr  = edge == null ? '' : (edge > 0 ? '+' : '') + edge + '%p';
+  const edgeHtml = edge != null ? `<span class="mi-item">Edge <span class="${eCls}">${eStr}</span></span>` : '';
+
+  // 극단적 edge 경고 배지
+  const extremeEdge = d.extreme_edge === true;
+  const extremeWarnHtml = extremeEdge
+    ? `<div style="margin-top:6px;padding:5px 8px;background:#fff1f2;border:1px solid #fca5a5;border-radius:6px;font-size:11px;color:#991b1b;font-weight:600">
+        🚨 극단적 edge ${eStr} — 칼시 마켓 데이터 이상 가능성. 실제 배당 직접 확인 필요
+       </div>`
+    : '';
+
+  // ⭐ 고신뢰 예측 배너
+  const consensusHtml = d.consensus === true
+    ? `<div style="margin-top:6px;padding:5px 10px;background:linear-gradient(135deg,#fef9c3,#fef08a);border:1px solid #fbbf24;border-radius:6px;font-size:11px;color:#78350f;font-weight:700">
+        ⭐ 고신뢰 예측 — 모델 60%+ &amp; Kalshi 동일 방향 동의. 적중률 기대치 높음
+       </div>`
+    : '';
+
+  parts.push(`
+    <div class="value-bet-row">
+      <span class="vb-badge ${vbCls}">${esc(vb)}</span>
+      <div class="market-info">
+        ${kalshiHtml}
+        ${edgeHtml}
+        ${buildExpectedScore(d, aw, hw)}
+      </div>
+    </div>
+    ${extremeWarnHtml}
+    ${consensusHtml}`);
+
+  // 실제 결과 (Final/Live)
+  const st = d.status || '';
+  if (st === 'Final' && d.actual_score?.away != null) {
+    const aS   = d.actual_score.away;
+    const hS   = d.actual_score.home;
+    const aWon = aS > hS;
+    let verdict = '';
+    if (d.model_correct === true)  verdict = `<span class="verdict-badge verdict-hit">✓ 모델 적중</span>`;
+    if (d.model_correct === false) verdict = `<span class="verdict-badge verdict-miss">✗ 빗나감</span>`;
+    parts.push(`
+      <div class="result-row">
+        <div class="result-score">
+          <span class="${aWon?'r-winner':'r-loser'}">${aS}</span>
+          <span class="r-sep">–</span>
+          <span class="${!aWon?'r-winner':'r-loser'}">${hS}</span>
+        </div>
+        <span class="r-label">원정 · 홈</span>
+        ${verdict}
+      </div>`);
+  } else if (st === 'Live') {
+    const aS = d.actual_score?.away ?? '?';
+    const hS = d.actual_score?.home ?? '?';
+    parts.push(`<div style="font-size:14px;font-weight:700;color:var(--yellow)">⚡ ${aS} – ${hS} 진행중</div>`);
+  }
+
+  // 예측 근거 태그
+  const tagsHtml = buildReasonTags(d);
+  if (tagsHtml) parts.push(`<div class="tags-row">${tagsHtml}</div>`);
+
+  return `<div class="card-footer">${parts.join('')}</div>`;
+}
+
+function buildExpectedScore(d, aw, hw) {
+  const ea = d.expected_score?.away;
+  const eh = d.expected_score?.home;
+  if (ea == null || eh == null) return '';
+  const awColor = aw >= hw ? 'var(--home-color)' : 'var(--away-color)';
+  const hwColor = hw >  aw ? 'var(--home-color)' : 'var(--away-color)';
+  return `<span class="mi-item">예상 <b style="color:${awColor}">${ea}</b>:<b style="color:${hwColor}">${eh}</b></span>`;
+}
+
+// ── 예측 근거 태그 빌더 ────────────────────────────────
+function buildReasonTags(d) {
+  const tags = [];
+  const sc  = d.scorecard || {};
+  const aw  = d.win_prob?.away ?? 50;
+  const hw  = d.win_prob?.home ?? 50;
+  const winPct = Math.max(aw, hw);
+
+  // 신뢰도
+  if (winPct >= 65) tags.push(`<span class="reason-tag rtag-blue">🎯 강한 우세 ${winPct.toFixed(1)}%</span>`);
+  else if (winPct >= 55) tags.push(`<span class="reason-tag rtag-green">📊 우세 ${winPct.toFixed(1)}%</span>`);
+  else tags.push(`<span class="reason-tag rtag-gray">⚖️ 박빙 ${winPct.toFixed(1)}%</span>`);
+
+  // 모델 불일치
+  if (d.ml_mc_conflict_level === 'high') {
+    tags.push(`<span class="reason-tag rtag-warn" style="background:#fff1f2;color:#991b1b;border-color:#fca5a5">🔴 모델 극심 불일치</span>`);
+  } else if (d.ml_mc_conflict_level === 'medium') {
+    tags.push(`<span class="reason-tag rtag-warn">🟡 모델 불일치</span>`);
+  } else if (d.ml_mc_agree === false) {
+    tags.push(`<span class="reason-tag rtag-warn" style="opacity:.85">⚡ 소폭 불일치</span>`);
+  }
+
+  // 라인업 출처
+  const batSrc = sc.bat_source || '';
+  const ah = sc.away_handedness || '?';
+  const hh = sc.home_handedness || '?';
+  if (batSrc === 'lineup') {
+    tags.push(`<span class="reason-tag rtag-green">✅ 확정 라인업</span>`);
+    tags.push(`<span class="reason-tag rtag-gray">원정 vs ${hh}P · 홈 vs ${ah}P</span>`);
+  } else if (batSrc === 'prev_day_splits') {
+    tags.push(`<span class="reason-tag rtag-orange">📋 추정 라인업+스플릿</span>`);
+  } else if (batSrc === 'prev_day') {
+    tags.push(`<span class="reason-tag rtag-orange">📋 추정 라인업(전일)</span>`);
+  } else if (batSrc === 'team_stats') {
+    tags.push(`<span class="reason-tag rtag-gray">⏳ 팀 통계 (라인업 미확보)</span>`);
+  }
+
+  // 선발 미정
+  const awayMitj = (d.away_pitcher || '').includes('(미정)');
+  const homeMitj = (d.home_pitcher || '').includes('(미정)');
+  if (awayMitj) tags.push(`<span class="reason-tag rtag-orange">🔄 ${esc(d.away)} 로테이션 추정</span>`);
+  if (homeMitj) tags.push(`<span class="reason-tag rtag-orange">🔄 ${esc(d.home)} 로테이션 추정</span>`);
+  if (!awayMitj && !homeMitj && (d.away_pitcher === 'TBD' || d.home_pitcher === 'TBD')) {
+    const tbd = d.away_pitcher === 'TBD' ? d.away : d.home;
+    tags.push(`<span class="reason-tag rtag-orange">⚠️ ${esc(tbd)} 선발 미정</span>`);
+  }
+
+  // ERA 우위
+  const aps = d.away_pitcher_stats || {};
+  const hps = d.home_pitcher_stats || {};
+  const aEra = parseFloat(aps.era);
+  const hEra = parseFloat(hps.era);
+  if (!isNaN(aEra) && !isNaN(hEra)) {
+    const diff = Math.abs(aEra - hEra);
+    if (diff >= 1.5) {
+      const better = aEra < hEra ? d.away_pitcher : d.home_pitcher;
+      tags.push(`<span class="reason-tag rtag-green">⚾ 투수 ERA 우위: ${esc((better||'').split(' ').pop())} (${Math.min(aEra,hEra).toFixed(2)})</span>`);
+    }
+    // 투수 승률
+    const aDec = (aps.wins||0)+(aps.losses||0);
+    const hDec = (hps.wins||0)+(hps.losses||0);
+    if (aDec > 0 && hDec > 0) {
+      const aWpct = (aps.wins||0)/aDec;
+      const hWpct = (hps.wins||0)/hDec;
+      if (Math.abs(aWpct-hWpct) >= 0.15) {
+        const bw = aWpct > hWpct ? d.away_pitcher : d.home_pitcher;
+        const bp = Math.max(aWpct,hWpct);
+        tags.push(`<span class="reason-tag rtag-purple">🏆 승률우위: ${esc((bw||'').split(' ').pop())} ${(bp*100).toFixed(0)}%</span>`);
+      }
+    }
+  }
+
+  // 팀 순위
+  const as = d.away_standing || {};
+  const hs = d.home_standing || {};
+  if (hs.div_rank === 1) tags.push(`<span class="reason-tag rtag-green">🥇 ${esc(d.home)} 지구 선두</span>`);
+  else if (as.div_rank === 1) tags.push(`<span class="reason-tag rtag-blue">🥇 ${esc(d.away)} 지구 선두</span>`);
+
+  // ML+MC 합의
+  const bd = d.blend_detail;
+  if (bd) {
+    const mlW = bd.ml_home > bd.ml_away ? d.home : d.away;
+    const mcW = bd.mc_home > bd.mc_away ? d.home : d.away;
+    if (mlW === mcW && Math.abs(bd.ml_home - bd.mc_home) >= 20) {
+      tags.push(`<span class="reason-tag rtag-green">✅ ML+MC 강한 합의</span>`);
+    } else if (mlW !== mcW) {
+      tags.push(`<span class="reason-tag rtag-orange">⚡ ML·MC 의견 불일치</span>`);
+    }
+  }
+
+  // 쿠어스
+  if ((d.home_standing?.div_name || '').includes('West') && d.home === 'Colorado Rockies') {
+    tags.push(`<span class="reason-tag rtag-orange">🏔️ 쿠어스 필드 보정</span>`);
+  }
+
+  // 부상자
+  const notes = d.notes || '';
+  if (notes.length > 10) {
+    tags.push(`<span class="reason-tag rtag-red">🤕 부상자 주의</span>`);
+  }
+
+  // 투수 트렌드 강조
+  const awSpd = (d.scorecard?.away?.sp_detail || {});
+  const hwSpd = (d.scorecard?.home?.sp_detail || {});
+  const bothCold = d.scorecard?.bullpen_game === true;
+  const anyCold  = d.scorecard?.any_cold_sp  === true;
+  if (awSpd.trend === 'hot')  tags.push(`<span class="reason-tag rtag-fire">🔥 원정투수 Hot</span>`);
+  if (hwSpd.trend === 'hot')  tags.push(`<span class="reason-tag rtag-fire">🔥 홈투수 Hot</span>`);
+  if (awSpd.trend === 'cold') tags.push(`<span class="reason-tag rtag-gray">🥶 원정투수 Cold</span>`);
+  if (hwSpd.trend === 'cold') tags.push(`<span class="reason-tag rtag-gray">🥶 홈투수 Cold</span>`);
+  if (bothCold) tags.push(`<span class="reason-tag rtag-purple">🔄 불펜전 (양팀 선발 Cold) — 불펜 가중치↑</span>`);
+  else if (anyCold) tags.push(`<span class="reason-tag rtag-purple">🔄 불펜 가중치 보정 적용</span>`);
+
+  return tags.join('');
+}
+
+// ── 유틸 ──────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function fmt1(v) { return v != null ? (+v).toFixed(1) : '—'; }
+function fmt0(v) { return v != null ? Math.round(+v) : '—'; }
+
+// ══════════════════════════════════════════════════════
+//  히스토리 섹션
+// ══════════════════════════════════════════════════════
+let HISTORY_DATES = [];  // 동적으로 로드됨
+
+async function _fetchHistoryDates() {
+  if (IS_SERVER) {
+    try {
+      const r = await fetch(`${SERVER_URL}/api/history-dates`);
+      if (r.ok) {
+        const j = await r.json();
+        HISTORY_DATES = j.dates || [];
+        return;
+      }
+    } catch(e) {}
+  }
+  // 서버 없을 때: output/ 폴더 스캔 불가 → 하드코딩 fallback은 최신 날짜까지
+  // 브라우저에서 직접 열 경우 script 태그 존재 여부로 탐지
+  const known = [];
+  const start = new Date('2026-06-23');
+  const today = new Date();
+  for (let d = new Date(start); d <= today; d.setDate(d.getDate()+1)) {
+    const ds = d.toISOString().slice(0,10);
+    known.push(ds);
+  }
+  // 실제 파일 존재 여부 체크 (IS_SERVER=false 경우 모두 포함, onload로 필터링됨)
+  HISTORY_DATES = known;
+}
+
+let _histCache   = {};
+let _histLoaded  = false;
+let _histActive  = null;
+let _histVisible = false;
+
+function toggleHistory() {
+  _histVisible = !_histVisible;
+  const sec = document.getElementById('history-section');
+  const btn = document.getElementById('history-toggle-btn');
+  if (_histVisible) {
+    sec.style.display = 'block';
+    btn.classList.add('active');
+    if (!_histLoaded) loadAllHistory();
+  } else {
+    sec.style.display = 'none';
+    btn.classList.remove('active');
+  }
+}
+
+async function loadAllHistory() {
+  const tabRow = document.getElementById('hist-tabs-row');
+  tabRow.innerHTML = '<div id="history-loading">히스토리 날짜 목록 불러오는 중…</div>';
+  await _fetchHistoryDates();
+  tabRow.innerHTML = '<div id="history-loading">히스토리 데이터 로딩 중…</div>';
+  for (const d of HISTORY_DATES) await _loadHistDate(d);
+  _histLoaded = true;
+  renderHistoryTabs();
+  updateHistoryCumulative();
+  const lastDate = HISTORY_DATES[HISTORY_DATES.length - 1];
+  renderHistoryTable(lastDate);
+}
+
+function _loadHistDate(dateStr) {
+  return new Promise(resolve => {
+    const existing = document.getElementById(`_hist_${dateStr}`);
+    if (existing) existing.remove();
+    const prev = window.PREDICTIONS_DATA;
+    window.PREDICTIONS_DATA = undefined;
+    const s = document.createElement('script');
+    s.id  = `_hist_${dateStr}`;
+    s.src = IS_SERVER
+      ? `${SERVER_URL}/output/predictions_${dateStr}.js?t=hist`
+      : `output/predictions_${dateStr}.js`;
+    s.onload = function() {
+      if (Array.isArray(window.PREDICTIONS_DATA)) _histCache[dateStr] = window.PREDICTIONS_DATA;
+      window.PREDICTIONS_DATA = prev; resolve();
+    };
+    s.onerror = function() { window.PREDICTIONS_DATA = prev; resolve(); };
+    document.head.appendChild(s);
+  });
+}
+
+function renderHistoryTabs() {
+  const tabRow = document.getElementById('hist-tabs-row');
+  tabRow.innerHTML = '';
+  HISTORY_DATES.forEach(d => {
+    const rows = _histCache[d] || [];
+    const completed = rows.filter(r => r.model_correct !== null && r.model_correct !== undefined);
+    const hits  = completed.filter(r => r.model_correct).length;
+    const total = completed.length;
+    const pct   = total > 0 ? Math.round(hits / total * 100) : null;
+    const accCls = pct === null ? '' : pct >= 65 ? 'acc-high' : pct >= 50 ? 'acc-mid' : 'acc-low';
+    const pctStr = pct !== null ? pct + '%' : '—';
+    const subStr = total > 0 ? `${hits}/${total}` : '없음';
+    const tab = document.createElement('div');
+    tab.className = `hist-tab ${accCls}`;
+    tab.dataset.date = d;
+    tab.innerHTML = `
+      <div class="htdate">${d.slice(5)}</div>
+      <div class="htacc">${pctStr}</div>
+      <div class="htsub">${subStr}</div>`;
+    tab.onclick = () => renderHistoryTable(d);
+    tabRow.appendChild(tab);
+  });
+}
+
+function updateHistoryCumulative() {
+  let totalHits = 0, totalGames = 0, bestPct = 0;
+  HISTORY_DATES.forEach(d => {
+    const rows = _histCache[d] || [];
+    const completed = rows.filter(r => r.model_correct !== null && r.model_correct !== undefined);
+    const hits = completed.filter(r => r.model_correct).length;
+    totalHits  += hits;
+    totalGames += completed.length;
+    if (completed.length > 0) {
+      const p = hits / completed.length * 100;
+      if (p > bestPct) bestPct = p;
+    }
+  });
+  const pct = totalGames > 0 ? (totalHits / totalGames * 100).toFixed(1) : '—';
+  const pctColor = totalGames > 0
+    ? (parseFloat(pct) >= 60 ? 'var(--green)' : parseFloat(pct) >= 50 ? 'var(--yellow)' : 'var(--red)')
+    : 'var(--muted)';
+  document.getElementById('hcum-hits').textContent  = totalHits;
+  document.getElementById('hcum-total').textContent = totalGames;
+  document.getElementById('hcum-pct').textContent   = totalGames > 0 ? pct + '%' : '—';
+  document.getElementById('hcum-pct').style.color   = pctColor;
+  document.getElementById('hcum-best').textContent  = bestPct > 0 ? Math.round(bestPct) + '%' : '—';
+  document.getElementById('history-cumulative').style.display = 'flex';
+}
+
+function renderHistoryTable(dateStr) {
+  _histActive = dateStr;
+  document.querySelectorAll('.hist-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.date === dateStr);
+  });
+  const rows  = _histCache[dateStr] || [];
+  const tbl   = document.getElementById('history-table');
+  const tbody = document.getElementById('hist-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--muted)">${dateStr} 데이터 없음</td></tr>`;
+    tbl.style.display = 'table';
+    return;
+  }
+  tbody.innerHTML = rows.map(d => {
+    const aw = d.win_prob?.away ?? 50;
+    const hw = d.win_prob?.home ?? 50;
+    const predWinner = hw >= aw ? d.home : d.away;
+    const predPct    = Math.max(aw, hw).toFixed(1);
+    let scoreHtml = '<span style="color:var(--muted);font-style:italic">미완료</span>';
+    if (d.status === 'Final' && d.actual_score) {
+      const aS = d.actual_score.away, hS = d.actual_score.home;
+      const aWon = aS > hS;
+      scoreHtml = `<span class="h-score">
+        <span class="${aWon?'w':'l'}">${aS}</span>
+        <span class="s">–</span>
+        <span class="${!aWon?'w':'l'}">${hS}</span>
+      </span>`;
+    }
+    let verdictHtml = `<span class="h-verdict pend">예정</span>`;
+    if (d.model_correct === true)  verdictHtml = `<span class="h-verdict hit">✓ 적중</span>`;
+    if (d.model_correct === false) verdictHtml = `<span class="h-verdict miss">✗ 빗나감</span>`;
+    const rowCls = d.model_correct === true ? 'h-hit' : d.model_correct === false ? 'h-miss' : '';
+    return `<tr class="${rowCls}">
+      <td>
+        <div class="h-matchup-teams">${esc(d.away)} @ ${esc(d.home)}</div>
+        <div class="h-matchup-sub">${esc(d.away_pitcher||'TBD')} vs ${esc(d.home_pitcher||'TBD')}</div>
+      </td>
+      <td>${esc(predWinner)}</td>
+      <td style="text-align:center">
+        <div style="font-size:16px;font-weight:700">${predPct}%</div>
+        <div style="font-size:11px;color:var(--muted)">${hw>=aw?'홈':'원정'} 우세</div>
+      </td>
+      <td style="text-align:center">${scoreHtml}</td>
+      <td style="text-align:center">${verdictHtml}</td>
+    </tr>`;
+  }).join('');
+  tbl.style.display = 'table';
+}
+</script>
+</body>
+</html>

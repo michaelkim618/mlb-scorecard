@@ -95,11 +95,15 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
                 print(f"  [오버라이드] {home['team']['name']} 선발: {name}")
 
             game_time_pt = _to_pt_str(g.get("gameDate", ""))
+            game_number   = g.get("gameNumber", 1)          # 더블헤더: 1 or 2
+            double_header = g.get("doubleHeader", "N")      # "S"=스플릿 더블헤더, "Y"=전통, "N"=없음
 
             games.append({
                 "gamePk":          g["gamePk"],
                 "gameDate":        g.get("officialDate", game_date),
                 "game_time":       game_time_pt,
+                "game_number":     game_number,
+                "doubleheader":    double_header != "N",
                 "status":          status_state,
                 "away_id":         away_id,
                 "away_name":       away["team"]["name"],
