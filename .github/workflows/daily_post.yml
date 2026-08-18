@@ -67,6 +67,7 @@ concurrency:
 jobs:
   check_and_post:
     runs-on: ubuntu-latest
+    timeout-minutes: 25   # 최대 25분 — 6시간 hang 방지 (정상 실행은 10~15분)
 
     steps:
       - name: 코드 체크아웃
