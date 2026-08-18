@@ -236,4 +236,9 @@ jobs:
 
           git add public/news.json public/season_results.json public/predictions.json public/blog/ public/post_state_*.json || true
           git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }})"
-          git pull --rebase && git push
+          # rebase 실패 시 재시도 (수동 커밋 충돌 방어)
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            echo "⚠️ push 실패 (시도 $i/3) — 5초 후 재시도"
+            sleep 5
+          done || echo "⚠️ 웹 레포 push 최종 실패 (다음 run에서 재시도됨)"
