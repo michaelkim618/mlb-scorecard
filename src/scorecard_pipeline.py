@@ -732,6 +732,30 @@ def run(game_date: Optional[str] = None) -> list:
                     home_win_pct = round(100.0 - away_win_pct, 1)
                     print(f"    [SP과신보정] 어웨이SP 압도적 우세({sp_diff:.0f}pt)지만 불펜/타선 열세 → 어웨이 -{SP_OVERCONF_PENALTY}% 보정")
 
+        # ── 7.85 한쪽 ERA 5+ 경기: SP 격차 집중 보정 ────────────────────
+        # 데이터: ERA 5+ 포함 경기에서 SP 우위팀 승률 58.7% (BP 우위팀 47.6%)
+        # → ERA 5+ 상대 선발이 있을 때 SP 격차가 가장 신뢰할 지표
+        # 조건: 한쪽만 ERA 5+ (양팀 모두면 이미 고위험 처리됨) + SP 격차 ≥ 12pt
+        # 처리: SP 우위팀 방향으로 win_pct 2~3% 추가 이동
+        SP_ERA_HIGH_THRESH    = 5.0
+        SP_GAP_BOOST_THRESH   = 12.0   # SP 격차 이 이상일 때 발동
+        SP_ERA_BOOST          = 2.5    # win_pct 이동폭(%)
+        one_sp_high = (n_high_era == 1)  # 한쪽만 ERA 5+ (위에서 계산된 값 재사용)
+
+        if one_sp_high:
+            sp_diff_era = home_sp_s - away_sp_s  # 양수=홈SP 우위
+            if abs(sp_diff_era) >= SP_GAP_BOOST_THRESH:
+                if sp_diff_era > 0:
+                    # 홈 SP 명확 우위 → 홈팀 방향으로 보정
+                    home_win_pct = min(home_win_pct + SP_ERA_BOOST, HARD_CAP)
+                    away_win_pct = round(100.0 - home_win_pct, 1)
+                    print(f"    [🎯 SP격차집중] 한쪽ERA5+ + SP격차 {sp_diff_era:.1f}pt → {home_name} +{SP_ERA_BOOST}%")
+                else:
+                    # 원정 SP 명확 우위 → 원정팀 방향으로 보정
+                    away_win_pct = min(away_win_pct + SP_ERA_BOOST, HARD_CAP)
+                    home_win_pct = round(100.0 - away_win_pct, 1)
+                    print(f"    [🎯 SP격차집중] 한쪽ERA5+ + SP격차 {sp_diff_era:.1f}pt → {away_name} +{SP_ERA_BOOST}%")
+
         # ── 7.9 Option B: 타선 약팀 승률 상한 캡 ────────────────────────
         # 타선이 극도로 약한 팀(Bat < 28)이 픽으로 선택될 경우 승률 62%로 제한
         # 불펜이 좋아도 점수를 못 내면 65%+ 확률은 과신
@@ -750,8 +774,34 @@ def run(game_date: Optional[str] = None) -> list:
         # 분석: 2일간 70%+ 예측도 실제 50% 적중 → 극단적 확률은 과신
         # MLB 실제 최강팀도 단일경기 승률 65% 넘기 어려움
         # shrink factor 0.88 → 기존 67%는 62.6%로, 75%는 66%로 압축
-        SHRINK_FACTOR = 0.88
-        away_win_pct = round(50.0 + (away_win_pct - 50.0) * SHRINK_FACTOR, 1)
+        #
+        # SP ERA 5+ 고위험 경기: 추가 압축 적용
+        # 데이터: ERA 5+ 포함 경기 모델 정확도 55.6% (정상 58.9%)
+        #         양팀 ERA 5+: 40.0% — 사실상 예측 불가
+        # → 불확실성을 확률에 반영해 과신 방지
+        HIGH_ERA_THRESHOLD   = 5.0
+        SHRINK_FACTOR        = 0.88   # 기본
+        SHRINK_FACTOR_ONE_HIGH = 0.82  # 한쪽 ERA 5+ → 더 압축
+        SHRINK_FACTOR_BOTH_HIGH = 0.75 # 양팀 ERA 5+ → 강하게 압축
+
+        away_sp_era_for_shrink = away_sp_era or 4.5
+        home_sp_era_for_shrink = home_sp_era or 4.5
+        n_high_era = sum([
+            away_sp_era_for_shrink >= HIGH_ERA_THRESHOLD,
+            home_sp_era_for_shrink >= HIGH_ERA_THRESHOLD,
+        ])
+
+        if n_high_era == 2:
+            eff_shrink = SHRINK_FACTOR_BOTH_HIGH
+            print(f"    [⚠️ 고위험압축] 양팀 ERA {HIGH_ERA_THRESHOLD}+ → shrink {eff_shrink} (불확실성 반영)")
+        elif n_high_era == 1:
+            eff_shrink = SHRINK_FACTOR_ONE_HIGH
+            high_side = away_name if away_sp_era_for_shrink >= HIGH_ERA_THRESHOLD else home_name
+            print(f"    [⚠️ 고위험압축] {high_side} ERA {HIGH_ERA_THRESHOLD}+ → shrink {eff_shrink}")
+        else:
+            eff_shrink = SHRINK_FACTOR
+
+        away_win_pct = round(50.0 + (away_win_pct - 50.0) * eff_shrink, 1)
         home_win_pct = round(100.0 - away_win_pct, 1)
 
         # ── 8. 최종 하드캡 (상대팀 강도 반영 동적 캡) ───────────────
@@ -835,14 +885,22 @@ def run(game_date: Optional[str] = None) -> list:
                 vb["value_bet"] = "⏭️ 패스 (불펜전 — 양팀 선발 Cold, 예측 신뢰 낮음)"
                 print(f"    [Value Bet] 양팀 선발 Cold 불펜전 → Value Bet 자동 제외")
         elif both_sp_high_era:
-            kalshi_home, _ = _safe(
-                lambda: get_kalshi_prob(game_date, away_name, home_name),
-                (None, None), "Kalshi"
-            )
-            vb = evaluate(home_win_pct, kalshi_home, home_name, away_name)
-            # Value Bet이 있어도 고위험 경기 경고 추가
-            if vb.get("value_bet", "").startswith("✅"):
-                vb["value_bet"] = f"⚠️ 고위험경기 주의 — " + vb["value_bet"]
+            # 양팀 ERA 5+ → Value Bet 자동 제외
+            # 데이터: 양팀 ERA 5+ 모델 정확도 40.0% (5경기) — 사실상 예측 불가
+            # BP 우위팀 승률 47.6% < 50% → BP 가중치 조정도 의미 없음
+            # SP 점수 격차만이 그나마 예측력 있음(58.7%) → 참고 지표로만 표시
+            kalshi_home = None
+            sp_gap = abs(away_sp_s - home_sp_s)
+            sp_pick = home_name if home_sp_s >= away_sp_s else away_name
+            vb = {
+                "kalshi_prob": None,
+                "edge": None,
+                "value_bet": f"⏭️ 패스 (양팀 ERA {BOTH_SP_HIGH_ERA_THRESHOLD}+ — 불확실성 과다, SP격차 {sp_gap:.1f}p 참고)",
+                "extreme_edge": False,
+                "consensus": None,
+            }
+            print(f"    [Value Bet] 양팀 ERA {BOTH_SP_HIGH_ERA_THRESHOLD}+ → Value Bet 자동 제외 "
+                  f"(SP격차 {sp_gap:.1f}p: {sp_pick} 우위)")
         else:
             kalshi_home, _ = _safe(
                 lambda: get_kalshi_prob(game_date, away_name, home_name),
