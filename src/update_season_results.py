@@ -309,11 +309,18 @@ def update():
             print(f"  📍 오늘 경기 추가: {entry['away']} @ {entry['home']} → {entry['pick']} ({'✅' if entry['correct'] else '❌'})")
         else:
             # 기존 엔트리 업데이트 (결과가 바뀐 경우)
+            # ⚠️ pick / pick_prob 은 절대 덮어쓰지 않음:
+            #    lineup refresh 로 predictions.json 픽이 바뀌어도
+            #    season_results 에는 최초 기록된 픽(초기 예측)을 보존해야 정확도 추적이 일관됨
             for i, eg in enumerate(existing["games"]):
                 if game_key(eg) == key:
                     if eg.get("actual_winner") != entry.get("actual_winner") and entry.get("actual_winner"):
-                        existing["games"][i] = entry
-                        print(f"  🔄 결과 업데이트: {entry['away']} @ {entry['home']} → {entry['pick']} ({'✅' if entry['correct'] else '❌'})")
+                        # 결과 필드만 갱신, 픽은 초기 값 유지
+                        actual_winner = entry["actual_winner"]
+                        eg["actual_winner"] = actual_winner
+                        eg["correct"] = (eg["pick"] == actual_winner)
+                        existing["games"][i] = eg
+                        print(f"  🔄 결과 업데이트: {eg['away']} @ {eg['home']} | 픽={eg['pick']} → {'✅' if eg['correct'] else '❌'} (실제: {actual_winner})")
                     break
 
     if not new_entries:
@@ -338,10 +345,25 @@ def update():
     # ── predictions.json에도 actual_winner / model_correct 반영 ──
     # SeasonStats UI가 predictions.json의 model_correct를 직접 읽으므로
     # 오늘 경기 결과를 predictions.json에도 업데이트해야 "Today's Results"가 실시간 반영됨
+    #
+    # ⚠️ 픽 보존 원칙:
+    #   model_winner / win_prob 은 절대 변경하지 않음.
+    #   lineup refresh 로 예측이 바뀌더라도 season_results 에 기록된 픽(초기 예측)을
+    #   기준으로 model_correct 를 계산해야 정확도가 일관됨.
+    #   → season_results 에서 해당 경기의 pick 을 읽어와서 correct 판정에 사용.
     pred_web = WEB_REPO / "public" / "predictions.json"
     if pred_web.exists() and api_results:
         try:
             pred_data = json.loads(pred_web.read_text(encoding="utf-8"))
+
+            # season_results 의 확정 픽을 game_key → pick 으로 인덱싱
+            locked_picks: dict[str, str] = {}
+            for sr_game in existing["games"]:
+                if sr_game.get("date") == today_str and sr_game.get("pick"):
+                    gn  = sr_game.get("game_number", 1) or 1
+                    sk  = f"{sr_game['away']}|{sr_game['home']}|G{gn}"
+                    locked_picks[sk] = sr_game["pick"]
+
             updated_count = 0
             for g in pred_data:
                 if g.get("date", "") != today_str:
@@ -353,14 +375,18 @@ def update():
                 actual_winner = api_results[api_key]
                 if g.get("actual_winner") == actual_winner:
                     continue  # 이미 최신
+
                 g["actual_winner"] = actual_winner
-                pick = g.get("model_winner") or ""
-                g["model_correct"] = (pick == actual_winner) if pick else None
-                # actual_score는 MLB API 점수 조회 없이 winner만 반영
+
+                # model_correct: season_results 의 확정 픽 기준 (없으면 현재 model_winner 사용)
+                locked_pick = locked_picks.get(api_key) or g.get("model_winner") or ""
+                g["model_correct"] = (locked_pick == actual_winner) if locked_pick else None
+
                 updated_count += 1
+
             if updated_count > 0:
                 pred_web.write_text(json.dumps(pred_data, indent=2, ensure_ascii=False), encoding="utf-8")
-                print(f"📝 predictions.json 결과 반영: {updated_count}경기 업데이트")
+                print(f"📝 predictions.json 결과 반영: {updated_count}경기 업데이트 (픽 보존)")
         except Exception as e:
             print(f"⚠️ predictions.json 업데이트 실패: {e}")
 
