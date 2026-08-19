@@ -740,7 +740,11 @@ def run(game_date: Optional[str] = None) -> list:
         SP_ERA_HIGH_THRESH    = 5.0
         SP_GAP_BOOST_THRESH   = 12.0   # SP 격차 이 이상일 때 발동
         SP_ERA_BOOST          = 2.5    # win_pct 이동폭(%)
-        one_sp_high = (n_high_era == 1)  # 한쪽만 ERA 5+ (위에서 계산된 값 재사용)
+        # n_high_era: 여기서 미리 계산 (7.95 shrinkage 섹션에서도 재사용)
+        _away_era_chk = away_sp_era if away_sp_era else 4.5
+        _home_era_chk = home_sp_era if home_sp_era else 4.5
+        n_high_era = sum([_away_era_chk >= SP_ERA_HIGH_THRESH, _home_era_chk >= SP_ERA_HIGH_THRESH])
+        one_sp_high = (n_high_era == 1)  # 한쪽만 ERA 5+
 
         if one_sp_high:
             sp_diff_era = home_sp_s - away_sp_s  # 양수=홈SP 우위
@@ -784,12 +788,10 @@ def run(game_date: Optional[str] = None) -> list:
         SHRINK_FACTOR_ONE_HIGH = 0.82  # 한쪽 ERA 5+ → 더 압축
         SHRINK_FACTOR_BOTH_HIGH = 0.75 # 양팀 ERA 5+ → 강하게 압축
 
-        away_sp_era_for_shrink = away_sp_era or 4.5
-        home_sp_era_for_shrink = home_sp_era or 4.5
-        n_high_era = sum([
-            away_sp_era_for_shrink >= HIGH_ERA_THRESHOLD,
-            home_sp_era_for_shrink >= HIGH_ERA_THRESHOLD,
-        ])
+        # n_high_era는 7.85 섹션에서 이미 계산됨 (_away_era_chk, _home_era_chk 재사용)
+        away_sp_era_for_shrink = _away_era_chk
+        home_sp_era_for_shrink = _home_era_chk
+        # n_high_era 이미 설정됨 (SP_ERA_HIGH_THRESH == HIGH_ERA_THRESHOLD == 5.0)
 
         if n_high_era == 2:
             eff_shrink = SHRINK_FACTOR_BOTH_HIGH
