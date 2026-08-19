@@ -886,7 +886,57 @@ def run(game_date: Optional[str] = None) -> list:
         home_pitcher_stats = _safe(lambda p=home_pitcher_id: _pitcher_display_stats(p),
                                    {"wins": None, "losses": None, "era": None}, "홈 투수시즌스탯")
 
-        # ── 12. 모델 적중 판정 ────────────────────────────────────────
+        # ── 12. 박빙 타이브레이커 (스코어카드 raw total 차이 ≤ 3.0p) ────
+        # sc["away_total"] / sc["home_total"]: HOME_BONUS 반영 전 순수 스코어카드 합계
+        # 이 값이 거의 동점일 때 "홈이니까 유리" 단순 적용 대신
+        # 팀 순위·streak 를 정량화해서 홈 어드밴티지를 이길 만큼 원정팀이 강한지 판단.
+        #
+        # 설계 원칙:
+        #   "홈 어드밴티지 = 3승 차이와 동등한 가중치"
+        #   → 홈 이점 유지 기준값 HOME_ADV_WINS = 3
+        #   → 순위 우위(승수 차이) + streak 차이가 이를 넘으면 원정팀으로 픽 전환
+        TIEBREAK_THRESHOLD = 3.0    # raw total 차이(점) 이하면 타이브레이커 적용
+        HOME_ADV_WINS      = 3.0    # 홈 어드밴티지 = 3승 차이 상당
+        STREAK_WEIGHT      = 0.5    # streak 1경기 = 0.5승 상당
+
+        raw_score_gap = abs(sc["home_total"] - sc["away_total"])
+
+        if raw_score_gap <= TIEBREAK_THRESHOLD:
+            # 시즌 승수(W) 직접 사용
+            home_wins_tb  = int(away_st.get("wins",  0) or 0)   # 주의: standings_map key는 팀 ID
+            away_wins_tb  = int(away_st.get("wins",  0) or 0)
+            home_wins_tb  = int(home_st.get("wins",  0) or 0)
+            away_wins_tb  = int(away_st.get("wins",  0) or 0)
+
+            # 최근 streak (양수=연승, 음수=연패)
+            away_streak_tb = int(away_st.get("streak_wins", 0) or 0)
+            home_streak_tb  = int(home_st.get("streak_wins", 0) or 0)
+
+            # 홈팀 net 우위 (양수 = 홈팀 유리, 음수 = 원정팀 유리)
+            #   win_gap:    홈팀 - 원정팀 승수 차이
+            #   streak_gap: (홈 streak - 원정 streak) × weight
+            #   home_field: 기본 홈 어드밴티지 = +HOME_ADV_WINS
+            win_gap       = (home_wins_tb - away_wins_tb)
+            streak_gap    = (home_streak_tb - away_streak_tb) * STREAK_WEIGHT
+            home_field    = HOME_ADV_WINS
+
+            net_home = win_gap + streak_gap + home_field
+
+            if net_home >= 0:
+                # 홈팀 우위 또는 동등 → 기존 HOME_BONUS 유지
+                tb_winner = home_name
+            else:
+                # 원정팀이 홈 어드밴티지를 극복할 만큼 우위
+                # → 홈 보너스를 제거하고 원정팀 소폭 우위로 전환
+                home_win_pct = max(45.0, home_win_pct - HOME_BONUS - 1.5)
+                away_win_pct = round(100.0 - home_win_pct, 1)
+                tb_winner = away_name
+
+            print(f"    [🔀 타이브레이커] raw스코어 차이 {raw_score_gap:.1f}p ≤ {TIEBREAK_THRESHOLD}p | "
+                  f"승수차 {win_gap:+d} streak차 {streak_gap:+.1f} 홈어드밴티지 +{home_field:.0f} "
+                  f"= net_home {net_home:+.1f} → {tb_winner} 선택")
+
+        # ── 모델 적중 판정 ────────────────────────────────────────────
         actual_winner = g.get("actual_winner")
         model_winner  = home_name if home_win_pct >= away_win_pct else away_name
         model_correct = (model_winner == actual_winner) if actual_winner else None
