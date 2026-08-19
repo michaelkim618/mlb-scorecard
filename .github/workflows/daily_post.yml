@@ -142,6 +142,46 @@ jobs:
             echo "⚠️  output/predictions.json 없음 — 스킵"
           fi
 
+      # ── prediction 모드: 당일 예측 누락 시 자동 복구 ──
+      # daily_init 실패(파이프라인 오류 등)로 오늘 predictions.json 이 없을 경우,
+      # prediction 모드 초반에 자동으로 재생성하여 홈페이지 공백을 방지
+      - name: 당일 예측 누락 시 자동 복구 (prediction 모드)
+        if: steps.config.outputs.MODE == 'prediction'
+        env:
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: |
+          WEB_PRED="mlb-scorecard-web/public/predictions.json"
+          TODAY="${{ steps.config.outputs.RUN_DATE }}"
+
+          # 웹 레포 predictions.json 날짜 확인
+          if [ -f "$WEB_PRED" ]; then
+            PRED_DATE=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('$WEB_PRED'))
+              dates = list(set(g.get('date','') for g in d))
+              print(dates[0] if dates else 'unknown')
+          except: print('error')
+          " 2>/dev/null || echo "error")
+            echo "📅 현재 predictions.json 날짜: $PRED_DATE (오늘: $TODAY)"
+          else
+            PRED_DATE="missing"
+            echo "⚠️  predictions.json 없음"
+          fi
+
+          if [ "$PRED_DATE" != "$TODAY" ]; then
+            echo "🔄 날짜 불일치 ($PRED_DATE ≠ $TODAY) — 당일 예측 자동 재생성 중..."
+            python src/scorecard_pipeline.py $TODAY
+            if [ -f output/predictions.json ]; then
+              cp output/predictions.json "$WEB_PRED"
+              echo "✅ 당일 예측 복구 완료 ($TODAY)"
+            else
+              echo "❌ 파이프라인 실패 — predictions.json 생성 안됨"
+            fi
+          else
+            echo "✅ predictions.json 날짜 정상 ($TODAY) — 복구 불필요"
+          fi
+
       # ── prediction / results 모드: 포스팅 ──
 
       - name: 포스팅 상태 & predictions.json 복원 (웹 레포 git — 신뢰성 보장)
