@@ -211,9 +211,28 @@ def pitcher_score(stats: dict, season_era: float = None,
     score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
 
     # 트렌드 보정
-    # hot: +3pt | cold: -8pt | neutral: 보정 없음
+    # hot: +3pt (소샘플 감쇠 적용) | cold: -8pt | neutral: 보정 없음
+    #
+    # ── Hot 소샘플 감쇠 ──────────────────────────────────────────────
+    # n_games < 3이면 Hot 판정이 1~2경기만 기반 → 신뢰도 낮음
+    # 최근 2경기 연속 ERA ≤ 1.5 같은 극단적 핫스트릭에 +3pt 전부 적용하면
+    # 과대평가 발생 → n_games 기반으로 보너스를 감쇠
+    #   n_games ≥ 5: +3.0pt (정상)
+    #   n_games == 4: +2.0pt
+    #   n_games == 3: +1.5pt
+    #   n_games ≤ 2: +1.0pt (최소 신뢰 보너스만 적용)
+    n_games_val = stats.get("n_games", 5)
+    if n_games_val >= 5:
+        hot_bonus = 3.0
+    elif n_games_val == 4:
+        hot_bonus = 2.0
+    elif n_games_val == 3:
+        hot_bonus = 1.5
+    else:  # 1~2경기
+        hot_bonus = 1.0
+
     if trend == "hot" and not recent_bad_start:
-        score = min(100.0, score + 3.0)
+        score = min(100.0, score + hot_bonus)
     elif trend == "cold":
         score = max(0.0, score - 8.0)
     # neutral (장기 휴식 복귀): trend 보정 없음 → 최근 기록 그대로 반영

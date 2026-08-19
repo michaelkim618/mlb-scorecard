@@ -600,6 +600,35 @@ def run(game_date: Optional[str] = None) -> list:
             cold_side = away_name if away_trend == "cold" else home_name
             print(f"    [🔄 불펜보정] {cold_side} 선발 Cold → 타선 {eff_bat_w:.0%} / 불펜 {eff_bp_w:.0%}로 조정")
 
+        # ── 타선 격차 민감도 보정 ─────────────────────────────────────
+        # 타선 점수 차이가 클수록 타선 가중치를 상향 조정
+        # (ATL@MIN 8/18: MIN 39.2 vs ATL 20.9 → 18.3p 차이 무시됨 → 개선)
+        # 기준: 격차 15p 이상이면 타선 가중치를 SP 가중치에서 이전해 상향
+        #
+        #   격차 15~19p: bat_w +0.03 (SP에서 차감)
+        #   격차 20p 이상: bat_w +0.05 (SP에서 차감)
+        # both_cold / any_cold 이미 적용된 경우에는 추가 조정 최소화 (SP_W 하한 0.25)
+        bat_gap = abs(away_bat_s - home_bat_s)
+        BAT_GAP_SM = 15.0   # 소폭 격차 임계값
+        BAT_GAP_LG = 20.0   # 대폭 격차 임계값
+        if bat_gap >= BAT_GAP_LG:
+            bat_boost = 0.05
+        elif bat_gap >= BAT_GAP_SM:
+            bat_boost = 0.03
+        else:
+            bat_boost = 0.0
+
+        if bat_boost > 0.0:
+            # SP 가중치에서 차감 (SP 하한 0.25 보장)
+            sp_transfer = min(bat_boost, max(0.0, eff_sp_w - 0.25))
+            eff_bat_w = round(eff_bat_w + sp_transfer, 2)
+            eff_sp_w  = round(eff_sp_w  - sp_transfer, 2)
+            stronger_bat = away_name if away_bat_s > home_bat_s else home_name
+            print(f"    [🏏 타선격차보정] 격차 {bat_gap:.1f}p ≥ {BAT_GAP_SM}p | "
+                  f"타선 가중치 {eff_bat_w-sp_transfer:.0%}→{eff_bat_w:.0%} "
+                  f"(SP {eff_sp_w+sp_transfer:.0%}→{eff_sp_w:.0%}) "
+                  f"| {stronger_bat} 타선 우위")
+
         sc = build_scorecard(
             away_sp=away_sp_s, home_sp=home_sp_s,
             away_bp=away_bp_s, home_bp=home_bp_s,
