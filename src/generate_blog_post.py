@@ -49,13 +49,56 @@ def load_predictions(game_date: str) -> list:
         return [g for g in data if g.get("date") == game_date] if isinstance(data, list) else []
     return []
 
+
+def _patch_model_correct_from_season_results(games: list, game_date: str, web_repo: Path) -> list:
+    """
+    season_results.json에서 model_correct를 역으로 채워넣기.
+    GitHub Actions 환경에서 predictions.js에 model_correct가 없을 때 fallback.
+    season_results.games 구조: {date, away, home, pick, actual_winner, correct}
+    """
+    if not games:
+        return games
+
+    # model_correct가 이미 모두 있으면 패스
+    if all(g.get("model_correct") is not None for g in games):
+        return games
+
+    sr_path = web_repo / "public" / "season_results.json"
+    if not sr_path.exists():
+        return games
+
+    try:
+        sr = json.loads(sr_path.read_text(encoding="utf-8"))
+        sr_games = sr.get("games", [])
+        # date + away + home 으로 매칭
+        result_map = {
+            (g["date"], g.get("away", ""), g.get("home", "")): g
+            for g in sr_games if g.get("date") == game_date
+        }
+        patched = []
+        for g in games:
+            key = (g.get("date", ""), g.get("away", ""), g.get("home", ""))
+            sr_g = result_map.get(key)
+            if sr_g and g.get("model_correct") is None:
+                g = dict(g)  # 복사
+                g["model_correct"] = sr_g.get("correct")
+                if g["model_correct"] is None and sr_g.get("actual_winner"):
+                    g["model_correct"] = (g.get("model_winner") == sr_g.get("actual_winner"))
+            patched.append(g)
+        return patched
+    except Exception:
+        return games
+
+
 def generate_daily_post(game_date: str, web_repo: Path):
     """Daily results review + tomorrow's Top Pick preview"""
     author = get_daily_author(game_date)
     persona = PERSONAS[author]
 
-    # Today's results
-    today_games = load_predictions(game_date)
+    # Today's results — season_results.json에서 model_correct 보완 (GitHub Actions 환경 대응)
+    today_games = _patch_model_correct_from_season_results(
+        load_predictions(game_date), game_date, web_repo
+    )
     done_games = [g for g in today_games if g.get("model_correct") is not None]
 
     wins = sum(1 for g in done_games if g.get("model_correct") == True)
