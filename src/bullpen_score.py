@@ -47,31 +47,61 @@ def bullpen_score(stats: dict) -> float:
     """
     불펜 점수 계산 (0~80점)
 
-    시즌 ERA 60% + 최근 7일 ERA 40% 혼합
-    → 피로한 불펜(최근 ERA 급등)은 점수 하락
-    → 쉬고 있는 불펜(최근 ERA 낮음)은 점수 상승
+    v1: 시즌ERA 60% + 최근7일ERA 40% 혼합, 등판 횟수 기반 피로 페널티
 
-    추가 보정:
-    - 최근 7일 5회 이상 등판: 피로 페널티 -3pt
-    - 최근 7일 데이터 없음: 시즌 ERA만 사용
+    v2 개선 (2026-08-19):
+    ┌─ A. recent_era 클램핑 ────────────────────────────────────────
+    │   최근7일 ERA가 시즌ERA + 2.0 초과 시 클램프
+    │   이유: 단기 이상 또는 소이닝 표본 왜곡 방지
+    │   예) 시즌ERA 4.01인 팀의 최근7일ERA 9.35 → 6.01로 클램프
+    │
+    ├─ B. 가중치 동적 조정 (recent_ip 신뢰도 기반) ─────────────────
+    │   최근7일 이닝이 충분할수록 recent_era 비중 상향
+    │   recent_ip < 8이닝  → 시즌85% / 최근15% (극소 표본)
+    │   recent_ip < 15이닝 → 시즌75% / 최근25% (중간 표본)
+    │   recent_ip ≥ 15이닝 → 시즌70% / 최근30% (충분한 표본)
+    │   ※ 기존 60%/40%에서 시즌 비중 강화 (과소평가 방지)
+    │
+    └─ C. 피로도 페널티: 투수 1인당 등판 횟수 기준 ─────────────────
+        기존: 총 등판 횟수(7회+→-6pt, 5회+→-3pt) — 팀 규모 무시
+        개선: avg_app = appearances / bp_count (인당 평균 등판)
+          avg ≥ 3.0 → -5pt (심각: 인당 3회+, 로스터 총 동원)
+          avg ≥ 2.5 → -3pt (중간)
+          avg ≥ 2.0 → -1.5pt (경미)
+          그 외   → 페널티 없음
     """
-    season_era = stats.get("bullpen_era", 4.00)
-    recent_era = stats.get("recent_era",  season_era)  # 없으면 시즌 ERA
-    appearances = stats.get("recent_appearances", 0)
+    season_era  = stats.get("bullpen_era",          4.00)
+    recent_era  = stats.get("recent_era",            season_era)
+    appearances = stats.get("recent_appearances",    0)
+    recent_ip   = stats.get("recent_ip",             0.0)
+    bp_count    = max(stats.get("bp_count",          5), 1)   # 0 방지
 
-    # 시즌 ERA 점수 (60%)
-    season_s = max(0.0, min(100.0, (6.5 - season_era) / 5.0 * 100.0))
-    # 최근 7일 ERA 점수 (40%)
-    recent_s = max(0.0, min(100.0, (6.5 - recent_era) / 5.0 * 100.0))
+    # ── A. recent_era 클램핑 ─────────────────────────────────────
+    # 시즌ERA 대비 2.0 초과 급등은 단기 이상/소이닝 왜곡으로 간주해 제한
+    RECENT_ERA_CAP_DELTA = 2.0
+    recent_era_adj = min(recent_era, season_era + RECENT_ERA_CAP_DELTA)
 
-    # 혼합
-    score = season_s * 0.60 + recent_s * 0.40
+    # ── B. 가중치: recent_ip 신뢰도 동적 조정 ────────────────────
+    if recent_ip < 8.0:
+        w_season, w_recent = 0.85, 0.15   # 극소 표본: 시즌 ERA 위주
+    elif recent_ip < 15.0:
+        w_season, w_recent = 0.75, 0.25   # 중간 표본
+    else:
+        w_season, w_recent = 0.70, 0.30   # 충분한 표본
 
-    # 피로도 페널티: 7일 내 5회 이상 등판 → -3pt, 7회 이상 → -6pt
-    if appearances >= 7:
-        score = max(0.0, score - 6.0)
-    elif appearances >= 5:
-        score = max(0.0, score - 3.0)
+    season_s = max(0.0, min(100.0, (6.5 - season_era)     / 5.0 * 100.0))
+    recent_s = max(0.0, min(100.0, (6.5 - recent_era_adj) / 5.0 * 100.0))
+
+    score = season_s * w_season + recent_s * w_recent
+
+    # ── C. 피로도 페널티: 투수 1인당 평균 등판 기준 ──────────────
+    avg_app_per_pitcher = appearances / bp_count
+    if avg_app_per_pitcher >= 3.0:
+        score = max(0.0, score - 5.0)    # 심각 (로스터 총동원)
+    elif avg_app_per_pitcher >= 2.5:
+        score = max(0.0, score - 3.0)    # 중간
+    elif avg_app_per_pitcher >= 2.0:
+        score = max(0.0, score - 1.5)    # 경미
 
     score = min(score, BULLPEN_SCORE_CAP)
     return round(score, 1)
