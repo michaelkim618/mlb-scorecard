@@ -185,6 +185,18 @@ def pitcher_score(stats: dict, season_era: float = None,
       - 소수 샘플(n_games<5): 점수를 리그 평균(45pt) 방향으로 회귀
       - 짧은 휴식(short_rest): -5pt
       - 과잉 휴식(extra_rest): -2pt (컨디션 불확실)
+
+    개선 사항 (v4):
+      - avg_ip 기반 Hot 보너스 감쇠: 오래 못 버티는 투수의 hot 과대평가 방지
+          avg_ip < 4.0 → hot_bonus × 0.3
+          avg_ip < 5.0 → hot_bonus × 0.7
+          avg_ip < 5.5 → hot_bonus × 0.9
+      - avg_ip 짧은 등판 페널티: 선발로서 기대값 미달
+          avg_ip < 4.0 → -4pt  avg_ip < 5.0 → -2pt
+      - QS율 기반 SP 점수 상한 캡: 자주 조기 강판되는 투수 과신 방지
+          qs_rate < 33% → 최대 50pt   qs_rate < 50% → 최대 56pt
+      - W-L 페널티 구간 확장: 서브-.500 레코드 포함
+          win_pct ≤ 0.48 → -1pt (예: 6-7, 7-8 등 근소 부진)
     """
     era    = stats.get("era",     4.50)
     whip   = stats.get("whip",    1.35)
@@ -211,7 +223,7 @@ def pitcher_score(stats: dict, season_era: float = None,
     score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
 
     # 트렌드 보정
-    # hot: +3pt (소샘플 감쇠 적용) | cold: -8pt | neutral: 보정 없음
+    # hot: +3pt (소샘플 감쇠 + avg_ip 감쇠 적용) | cold: -8pt | neutral: 보정 없음
     #
     # ── Hot 소샘플 감쇠 ──────────────────────────────────────────────
     # n_games < 3이면 Hot 판정이 1~2경기만 기반 → 신뢰도 낮음
@@ -231,11 +243,37 @@ def pitcher_score(stats: dict, season_era: float = None,
     else:  # 1~2경기
         hot_bonus = 1.0
 
+    # ── Hot avg_ip 감쇠 (v4) ─────────────────────────────────────────
+    # 평균 이닝이 짧은 투수는 hot 트렌드여도 실제 경기 기여도가 낮음
+    # 조기 강판 빈도가 높을수록 hot 보너스를 줄여 과대평가 방지
+    #   avg_ip < 4.0 → ×0.3 (심각한 조기 강판 반복)
+    #   avg_ip < 5.0 → ×0.7 (5이닝 미달: QS 기준에 못 미침)
+    #   avg_ip < 5.5 → ×0.9 (약간 짧음)
+    #   avg_ip ≥ 5.5 → ×1.0 (정상)
+    if avg_ip < 4.0:
+        ip_hot_factor = 0.3
+    elif avg_ip < 5.0:
+        ip_hot_factor = 0.7
+    elif avg_ip < 5.5:
+        ip_hot_factor = 0.9
+    else:
+        ip_hot_factor = 1.0
+    hot_bonus = round(hot_bonus * ip_hot_factor, 1)
+
     if trend == "hot" and not recent_bad_start:
         score = min(100.0, score + hot_bonus)
     elif trend == "cold":
         score = max(0.0, score - 8.0)
     # neutral (장기 휴식 복귀): trend 보정 없음 → 최근 기록 그대로 반영
+
+    # ── avg_ip 짧은 등판 페널티 (v4) ────────────────────────────────
+    # 5이닝 미만 선발은 선발로서의 기대값 자체가 낮음
+    # 불펜 소진 가속 리스크 → SP 점수에서 직접 차감
+    #   avg_ip < 4.0 → -4pt   avg_ip < 5.0 → -2pt
+    if avg_ip < 4.0:
+        score = max(0.0, score - 4.0)
+    elif avg_ip < 5.0:
+        score = max(0.0, score - 2.0)
 
     # 직전 등판 경보 페널티
     # ㆍhot/stable + ERA >= 6.0: -7pt (5경기 평균에 희석된 급락 신호)
@@ -251,9 +289,20 @@ def pitcher_score(stats: dict, season_era: float = None,
         score = max(0.0, score - 2.0)   # 과잉 휴식 불확실성 (완화)
     # long_rest: trend가 neutral로 이미 리셋됨 → 추가 페널티 없음
 
+    # ── QS율 기반 SP 점수 상한 캡 (v4) ─────────────────────────────
+    # QS율이 낮다 = 자주 조기강판 → 경기 제어력 부족
+    # hot 트렌드 등으로 점수가 높게 나왔어도 실질 기대값 반영해 캡 적용
+    #   qs_rate < 33% → 최대 50pt (10경기 중 3경기 미만 QS)
+    #   qs_rate < 50% → 최대 56pt (절반 미만 QS)
+    if qs < 33.0:
+        score = min(score, 50.0)
+    elif qs < 50.0:
+        score = min(score, 56.0)
+
     # ── W-L 승률 보너스/페널티 ──────────────────────────────────────
     # 14-2(87.5%) 투수와 13-7(65%) 투수는 유의미한 차이
     # 최소 5결정(wins+losses)이 있어야 신뢰도 있는 지표로 사용
+    # v4: 서브-.500 페널티 구간 확장 (≤0.48 → -1pt, 예: 6-7, 7-8 등)
     if season_wins is not None and season_losses is not None:
         total_decisions = season_wins + season_losses
         if total_decisions >= 5:
@@ -266,6 +315,8 @@ def pitcher_score(stats: dict, season_era: float = None,
                 score = max(0.0, score - 3.0)     # 부진 투수 (예: 4-8+)
             elif win_pct <= 0.40:
                 score = max(0.0, score - 2.0)     # 평균 이하 (예: 6-9)
+            elif win_pct <= 0.48:
+                score = max(0.0, score - 1.0)     # 근소 서브-.500 (예: 6-7, 7-8)
 
     # ── 시즌 ERA 하한선 ─────────────────────────────────────────────
     # 최근 성적이 나빠도 시즌 누적 ERA가 양호하면 최소 점수 보장
