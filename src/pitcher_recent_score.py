@@ -3,8 +3,94 @@
 get_pitcher_gamelog() 반환값을 분석
 """
 import math
+import requests
 from datetime import date, datetime
 from typing import Optional, List
+
+# ── 구종 코드 → 약어 매핑 ──────────────────────────────────────
+_PITCH_ABBR = {
+    "FF": "FB",   # Four-seam Fastball
+    "SI": "SI",   # Sinker
+    "FC": "CT",   # Cutter
+    "SL": "SL",   # Slider
+    "ST": "SW",   # Sweeper
+    "CU": "CB",   # Curveball
+    "CH": "CH",   # Changeup
+    "FS": "FS",   # Splitter
+    "KC": "KC",   # Knuckle-Curve
+    "SV": "SV",   # Slurve
+    "FO": "FO",   # Forkball
+    "SC": "SC",   # Screwball
+    "KN": "KN",   # Knuckleball
+}
+_FASTBALL_CODES = {"FF", "SI", "FC"}
+
+_arsenal_cache: dict = {}   # player_id → arsenal dict (세션 캐시)
+
+
+def get_pitcher_arsenal(player_id: int) -> dict:
+    """
+    MLB Stats API pitchArsenal로 투수의 나이·구속·구종 정보 반환.
+    반환: {age, fb_velo, secondary_pitches, pitch_arsenal, pitches_detail}
+    실패 시 빈 dict 반환 (파이프라인 중단 방지).
+    """
+    if not player_id:
+        return {}
+    if player_id in _arsenal_cache:
+        return _arsenal_cache[player_id]
+
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+
+        # ── 나이 ──────────────────────────────────────────────
+        r1 = requests.get(
+            f"https://statsapi.mlb.com/api/v1/people/{player_id}",
+            headers=headers, timeout=8
+        )
+        person = r1.json().get("people", [{}])[0]
+        age = person.get("currentAge")
+
+        # ── 구종 아스날 ───────────────────────────────────────
+        r2 = requests.get(
+            f"https://statsapi.mlb.com/api/v1/people/{player_id}"
+            f"?hydrate=stats(group=[pitching],type=[pitchArsenal],season=2026)",
+            headers=headers, timeout=8
+        )
+        stats = r2.json().get("people", [{}])[0].get("stats", [])
+
+        pitches = []
+        fb_velo = None
+        for s in stats:
+            for sp in s.get("splits", []):
+                stat = sp.get("stat", {})
+                code = stat.get("type", {}).get("code", "")
+                pct  = stat.get("percentage", 0) or 0
+                spd  = stat.get("averageSpeed", 0) or 0
+                if pct < 0.03 or not code:     # 3% 미만 구종 제외
+                    continue
+                abbr = _PITCH_ABBR.get(code, code)
+                pitches.append({"code": code, "abbr": abbr,
+                                "pct": round(pct * 100, 1), "velo": round(spd, 1)})
+                if code in _FASTBALL_CODES and (fb_velo is None or spd > fb_velo):
+                    fb_velo = round(spd, 1)
+
+        # 사용률 내림차순 정렬
+        pitches.sort(key=lambda x: -x["pct"])
+        arsenal   = [p["abbr"] for p in pitches]
+        secondary = [p["abbr"] for p in pitches if p["code"] not in _FASTBALL_CODES]
+
+        result = {
+            "age":              age,
+            "fb_velo":          fb_velo,
+            "pitch_arsenal":    arsenal,
+            "secondary_pitches": secondary,
+            "pitches_detail":   pitches,
+        }
+        _arsenal_cache[player_id] = result
+        return result
+
+    except Exception:
+        return {}
 
 
 def _ip_to_float(ip_str) -> float:

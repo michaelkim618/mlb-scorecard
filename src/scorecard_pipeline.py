@@ -21,7 +21,7 @@ from mlb_stats_fetcher    import (get_team_hitting_log, get_team_hitting_log_spl
                                    get_pitcher_gamelog, get_pitcher_season,
                                    get_standings_map, get_bullpen_era_direct,
                                    get_recent_home_away_wpct)
-from pitcher_recent_score import analyze_pitcher_recent, pitcher_score, _default_pitcher
+from pitcher_recent_score import analyze_pitcher_recent, pitcher_score, _default_pitcher, get_pitcher_arsenal
 from bullpen_score        import bullpen_score, _default_bullpen
 from batting_score_v2     import (analyze_batting, analyze_lineup_batting,
                                    analyze_lineup_batting_with_splits,
@@ -317,6 +317,16 @@ def run(game_date: Optional[str] = None) -> list:
             else:
                 home_sp_detail  = _default_pitcher()
                 home_handedness = "R"
+
+        # ── 투수 아스날 (나이 · 구속 · 구종) ────────────────────────
+        if away_pitcher_id and not away_is_tbd:
+            _aw_arsenal = _safe(lambda p=away_pitcher_id: get_pitcher_arsenal(p), {}, "원정투수아스날")
+            if _aw_arsenal:
+                away_sp_detail.update(_aw_arsenal)
+        if home_pitcher_id and not home_is_tbd:
+            _hm_arsenal = _safe(lambda p=home_pitcher_id: get_pitcher_arsenal(p), {}, "홈투수아스날")
+            if _hm_arsenal:
+                home_sp_detail.update(_hm_arsenal)
 
         # 시즌 ERA 가져오기 (하한선 보정용)
         away_season_era = None
