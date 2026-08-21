@@ -162,7 +162,7 @@ def run(game_date: Optional[str] = None) -> list:
     print(f"가중치: SP {SP_W:.0%} | BP {BP_W:.0%} | 타선 {BAT_W:.0%} | 상황 {SIT_W:.0%}")
     print(f"{'='*60}")
 
-    def _pitcher_gamelog_summary(gl: list, n: int = 5) -> list:
+    def _pitcher_gamelog_summary(gl: list, n: int = 10) -> list:
         """게임로그 최근 n경기 요약 (대시보드 표시용)"""
         if not gl:
             return []
@@ -183,15 +183,19 @@ def run(game_date: Optional[str] = None) -> list:
             opp = s.get("_opponent", "")
             is_home = s.get("_is_home", False)
             opp_label = f"vs {opp}" if is_home else f"@ {opp}"
+            wins   = int(float(s.get("wins", 0) or 0))
+            losses = int(float(s.get("losses", 0) or 0))
+            decision = "W" if wins > 0 else ("L" if losses > 0 else None)
             out.append({
-                "date":  s.get("_game_date", ""),
-                "opp":   opp_label,
-                "ip":    s.get("inningsPitched", "0"),
-                "er":    er,
-                "h":     h,
-                "bb":    bb,
-                "so":    so,
-                "era":   era_g,
+                "date":     s.get("_game_date", ""),
+                "opp":      opp_label,
+                "decision": decision,
+                "ip":       s.get("inningsPitched", "0"),
+                "er":       er,
+                "h":        h,
+                "bb":       bb,
+                "so":       so,
+                "era":      era_g,
             })
         return out
 
