@@ -370,6 +370,14 @@ def run(game_date: Optional[str] = None) -> list:
             elif sp.get("rest_days") is not None: notes.append(f"휴식{sp['rest_days']}일")
             if sp.get("sample_confidence", 1.0) < 1.0:
                 notes.append(f"샘플{sp['n_games']}경기")
+            velo = sp.get("fb_velo")
+            if velo is not None and velo < 92.0:
+                if velo < 88.0:
+                    notes.append(f"저속{velo}mph(-6pt)")
+                elif velo < 90.0:
+                    notes.append(f"저속{velo}mph(-4pt)")
+                else:
+                    notes.append(f"저속{velo}mph(-3pt)")
             return (" [" + "/".join(notes) + "]") if notes else ""
 
         print(f"    [선발] {away_name} {away_pitcher}{tbd_tag_away}: ERA {away_sp_detail['era']} WHIP {away_sp_detail['whip']} trend={away_sp_detail['trend']}{_sp_note(away_sp_detail)} → {away_sp_s}점")

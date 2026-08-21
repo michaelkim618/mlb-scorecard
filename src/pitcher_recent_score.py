@@ -283,6 +283,13 @@ def pitcher_score(stats: dict, season_era: float = None,
           qs_rate < 33% → 최대 50pt   qs_rate < 50% → 최대 56pt
       - W-L 페널티 구간 확장: 서브-.500 레코드 포함
           win_pct ≤ 0.48 → -1pt (예: 6-7, 7-8 등 근소 부진)
+
+    개선 사항 (v5):
+      - 패스트볼 구속 기반 페널티: 92 mph 미만 투수는 현대 MLB에서 구위 한계
+          fb_velo < 88 mph → -6pt  (극저속: 배팅 프랙티스 수준, 심각한 구위 부재)
+          fb_velo < 90 mph → -4pt  (저속: 생존 투구 의존, 커맨드 흔들리면 즉시 폭발)
+          fb_velo < 92 mph → -3pt  (기준 미달: 타자가 타이밍 잡기 쉬움, 실점 리스크 상승)
+          fb_velo is None  →  0pt  (데이터 없음: 페널티 미적용)
     """
     era    = stats.get("era",     4.50)
     whip   = stats.get("whip",    1.35)
@@ -293,6 +300,7 @@ def pitcher_score(stats: dict, season_era: float = None,
     conf   = stats.get("sample_confidence", 1.0)
     rest_note = stats.get("rest_note")
     recent_bad_start = stats.get("recent_bad_start", False)
+    fb_velo = stats.get("fb_velo")   # 패스트볼 평균 구속 (mph), None이면 데이터 없음
 
     # 0~100 정규화
     era_s  = max(0.0, min(100.0, (7.5 - era)    / 7.5  * 100.0))
@@ -367,6 +375,21 @@ def pitcher_score(stats: dict, season_era: float = None,
     if recent_bad_start:
         extra_penalty = 5.0 if trend == "cold" else 7.0
         score = max(0.0, score - extra_penalty)
+
+    # ── 패스트볼 구속 페널티 (v5) ────────────────────────────────────
+    # 현대 MLB에서 92 mph 미만 패스트볼은 타자가 타이밍을 잡기 쉬워 실점 리스크 상승.
+    # 구위 보완용 커맨드·변화구가 있어도 구속 열세는 구조적 약점 → 하향 조정.
+    #   fb_velo < 88 mph → -6pt  (극저속: 완전 커맨드/무브먼트 의존형, 고위험)
+    #   fb_velo < 90 mph → -4pt  (저속: 한 경기 무너지면 대량 실점 가능)
+    #   fb_velo < 92 mph → -3pt  (기준 미달: 지속적 열세, 상대 타선 적응 빠름)
+    #   fb_velo is None  →  0pt  (데이터 없음, 패널티 미적용)
+    if fb_velo is not None:
+        if fb_velo < 88.0:
+            score = max(0.0, score - 6.0)
+        elif fb_velo < 90.0:
+            score = max(0.0, score - 4.0)
+        elif fb_velo < 92.0:
+            score = max(0.0, score - 3.0)
 
     # 휴식일 보정
     if rest_note == "short_rest":
