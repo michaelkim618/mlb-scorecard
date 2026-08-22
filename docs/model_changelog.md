@@ -260,3 +260,60 @@ BP  20% — 시즌ERA × 동적가중치 + 최근7일ERA × 동적가중치 + �
 | 2 | 개별 불펜 투수 연속 등판 체크 | 피로한 핵심 셋업맨 탐지 |
 | 3 | SP 샘플 신뢰도 UI 표시 | 루키/복귀 투수 과대평가 방지 |
 | 4 | 구속 저하 트렌드 감지 | 부상 징후 투수 사전 탐지 |
+
+---
+
+## 2026-08-21 세션 요약 (야간)
+
+---
+
+## 8/21 경기 결과 분석 → 5대 모델 개선 (v6)
+
+### 8/21 예측 성적: 12W-3L (80.0%)
+
+| 틀린 경기 | 예측 | 실제 | 분석 |
+|-----------|------|------|------|
+| OAK @ HOU | OAK 52% | HOU 4-0 | 박빙 원정픽, Kalshi HOU 62% 무시 |
+| LAA @ TEX | LAA 52% | TEX 2-1 | 박빙 원정픽, 홈이점 과소평가 |
+| CHC @ SEA | CHC 61% | SEA 6-5 | 주전 부상자 미반영, 홈이점 과소평가 |
+
+---
+
+## 1. 홈팀 박빙 보정 (`scorecard_pipeline.py`)
+
+- 원정팀 픽 확률이 50~55% 구간일 때 → -2.5%p 보정 (최소 50% 유지)
+- 50% 미만으로 내려가면 홈팀으로 픽 전환
+- 로그: `[🏠 박빙홈보정] 원정픽 XX% → 홈이점 -2.5% → 결과`
+
+## 2. 부상자 핵심도 구분 (`injury_check.py`, `mlb_stats_fetcher.py`)
+
+- 기존: IL 명단 텍스트 표시만 (점수 미반영)
+- 개선: 타자 주전(Infielder/Outfielder) IL 인원수 기반 타선 페널티 적용
+  - 1명: -1.5pt / 2명: -3.0pt / 3명 이상: -4.5pt (상한)
+  - 투수 부상은 SP/BP 점수에 이미 반영 → 제외
+- 신규 함수: `get_injured_players_detail()`, `get_injury_penalty()`
+
+## 3. Kalshi 괴리 보정 (`scorecard_pipeline.py`)
+
+- |edge| ≥ 15%p → 모델을 Kalshi 방향으로 25% 당김
+  - 예: model=52%, kalshi=67% → gap=15, 조정 +3.75%p
+- 로그: `[🔄 Kalshi보정] edge +/-XX.X%p ≥ 15 → 보정`
+
+## 4. BP 클로저 별도 가중치 (`bullpen_score.py`, `mlb_stats_fetcher.py`)
+
+- 마무리 투수 식별: 세이브 기회 최다 투수 (최소 3회 이상)
+- 클로저 ERA를 불펜 점수에 20% 반영: `score = score*0.80 + closer_score*0.20`
+- 클로저 ERA > 4.5 → 추가 -2.0pt 페널티
+- 반환 필드: `closer_era`, `closer_name`
+
+## 5. Value Bet 기준 정교화 (`value_bet.py`)
+
+- 박빙 경기(max_model_pct < 55%) → Value Bet 자동 패스
+- lineup_confirmed=False → 라인업 미확정 패스 (evaluate 내부 통합)
+- edge 등급 세분화:
+  - 8~14%p: `✅ Value Bet 후보`
+  - 15~24%p: `🔥 Strong Value Bet`
+  - 25%p 이상: `🚨 극단 Edge (마켓 이상 의심)`
+
+### 커밋: `676c569`
+
