@@ -300,7 +300,7 @@ def check_and_post_predictions(game_date: str):
 
         run_pipeline(game_date)
         copy_predictions_to_web(game_date)
-        run_instagram_post(game_date)
+        # run_instagram_post(game_date)  # 인스타그램 자동 포스팅 비활성화
         run_twitter_post(game_date, post_type="prediction")
 
         # 상태 저장
@@ -360,7 +360,7 @@ def check_and_post_results(game_date: str):
         )
 
     # 결과 포스팅 (텍스트 스타일)
-    run_instagram_post(game_date)
+    # run_instagram_post(game_date)  # 인스타그램 자동 포스팅 비활성화
     run_twitter_post(game_date, post_type="results")
 
     # 상태 저장
