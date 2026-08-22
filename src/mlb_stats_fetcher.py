@@ -279,6 +279,9 @@ def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
     recent_bp_er = 0.0
     recent_bp_appearances = 0  # 7일 내 등판 횟수 (피로도 지표)
 
+    # 클로저 식별용
+    _closer_candidates = []  # (saves + saveOpportunities, pid, name, era)
+
     for pid in pitcher_ids:
         try:
             # ① 시즌 스탯
@@ -304,6 +307,14 @@ def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
                 bp_ip += ip
                 bp_er += er
                 bp_count += 1
+
+                # 클로저 후보 추출: saves + saveOpportunities
+                saves     = int(s.get("saves", 0) or 0)
+                save_opps = int(s.get("saveOpportunities", 0) or 0)
+                total_sv_opps = saves + save_opps
+                if total_sv_opps > 0:
+                    # 투수 이름 조회 (roster에서 이미 있으므로 person 정보 활용)
+                    _closer_candidates.append((total_sv_opps, pid, saves, save_opps, ip, er))
 
             # ② 최근 7일 게임로그 (불펜 투수만)
             if is_bullpen:
@@ -341,7 +352,31 @@ def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
     team_era    = round(all_er / all_ip * 9, 2) if all_ip > 0 else 4.00
 
     # 최근 7일 ERA (샘플 부족 시 시즌 ERA로 fallback)
-    recent_era = round(recent_bp_er / recent_bp_ip * 9, 2) if recent_bp_ip >= 2.0 else bullpen_era
+    # BP ERA floor 2.0: 소표본 극단값 방지 (회귀 편향 보정)
+    _raw_recent = round(recent_bp_er / recent_bp_ip * 9, 2) if recent_bp_ip >= 2.0 else bullpen_era
+    recent_era = max(_raw_recent, 2.0)
+
+    # ── 클로저 선정 ────────────────────────────────────────────────────
+    # saves + saveOpportunities 합계가 가장 높고 최소 세이브 기회 3회 이상인 투수
+    closer_era  = None
+    closer_name = None
+    if _closer_candidates:
+        # 총 세이브 기회(saves + saveOpportunities) 내림차순 정렬
+        _closer_candidates.sort(key=lambda x: x[0], reverse=True)
+        best = _closer_candidates[0]
+        total_sv_opps_best = best[0]
+        if total_sv_opps_best >= 3:
+            c_pid     = best[1]
+            c_ip      = best[4]
+            c_er      = best[5]
+            closer_era = round(c_er / c_ip * 9, 2) if c_ip >= 1.0 else None
+            # 투수 이름 조회
+            try:
+                person_data = _get(f"{BASE}/people/{c_pid}", {})
+                people = person_data.get("people", [])
+                closer_name = people[0].get("fullName") if people else None
+            except Exception:
+                closer_name = None
 
     return {
         "bullpen_era":          bullpen_era,
@@ -351,6 +386,8 @@ def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
         "team_era":             team_era,
         "bp_ip":                round(bp_ip, 1),
         "bp_count":             bp_count,
+        "closer_era":           closer_era,           # 클로저 시즌 ERA (없으면 None)
+        "closer_name":          closer_name,          # 클로저 이름 (없으면 None)
     }
 
 
@@ -560,6 +597,28 @@ def get_injured_players(team_id: int) -> list[str]:
         desc = p.get("status", {}).get("description", "")
         if "Injured" in desc or "IL" in desc:
             injured.append(p["person"]["fullName"])
+    return injured
+
+
+def get_injured_players_detail(team_id: int) -> list[dict]:
+    """현재 부상자 명단 (상세 정보 포함).
+    반환 형태: [{"name": str, "position": str, "status": str}, ...]
+    position은 position.type (예: "Infielder", "Outfielder", "Pitcher" 등)
+    """
+    data = _get(f"{BASE}/teams/{team_id}/roster", {
+        "rosterType": "40Man",
+        "season": SEASON,
+    })
+    injured = []
+    for p in data.get("roster", []):
+        desc = p.get("status", {}).get("description", "")
+        if "Injured" in desc or "IL" in desc:
+            pos_type = p.get("position", {}).get("type", "Unknown")
+            injured.append({
+                "name":     p["person"]["fullName"],
+                "position": pos_type,
+                "status":   desc,
+            })
     return injured
 
 

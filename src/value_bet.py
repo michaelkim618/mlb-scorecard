@@ -17,12 +17,16 @@ def evaluate(
     kalshi_home_prob: Optional[float],
     home_name: str,
     away_name: str,
+    model_pct: float = 0.0,
+    lineup_confirmed: bool = True,
 ) -> dict:
     """
     Args:
         model_home_pct   : 모델 홈팀 승률 (0~100)
         kalshi_home_prob : Kalshi 홈팀 implied prob (0~100) or None
         home_name, away_name : 팀명
+        model_pct        : 모델 최고 확률 (0~100). 0이면 model_home_pct로 자동 계산
+        lineup_confirmed : 라인업 확정 여부. False이면 강제 패스
 
     Returns dict with:
         kalshi_prob   : float or None
@@ -30,6 +34,15 @@ def evaluate(
         value_bet     : str 판정 텍스트
         extreme_edge  : bool — edge 절대값이 extreme_edge_warning_pct 이상
     """
+    # 라인업 미확정 → 강제 패스
+    if not lineup_confirmed:
+        return {
+            "kalshi_prob": kalshi_home_prob,
+            "edge": None,
+            "value_bet": "⏭️ 패스 (라인업 미확정)",
+            "extreme_edge": False,
+        }
+
     if kalshi_home_prob is None:
         return {
             "kalshi_prob": None,
@@ -45,8 +58,19 @@ def evaluate(
     # 극단적 edge 감지: 모델과 시장이 30%p 이상 차이 → 칼시 데이터 이상 가능성
     extreme_edge = (abs_edge >= _EXTREME_EDGE_WARN)
 
+    # 모델 최고 확률 계산 (파라미터 미제공 시 자동 계산)
+    max_model_pct = model_pct if model_pct > 0.0 else max(model_home_pct, 100.0 - model_home_pct)
+
+    # 박빙 필터: 모델 최고 확률 55% 미만이면 edge가 있어도 신뢰도 낮음 → 패스
+    if max_model_pct < 55.0 and abs_edge >= threshold:
+        return {
+            "kalshi_prob": kalshi_home_prob,
+            "edge": edge,
+            "value_bet": "⏭️ 패스 (박빙 경기 — 예측 신뢰도 낮음)",
+            "extreme_edge": extreme_edge,
+        }
+
     # 극단적 예측(75%+) + 시장과 크게 반대(-15%p 이상)이면 최고 위험 경고
-    max_model_pct = max(model_home_pct, 100.0 - model_home_pct)
     if max_model_pct >= 75.0 and edge <= -15.0:
         label = f"🚨 극회피 — 극단적 예측({max_model_pct:.0f}%)이나 시장 반대 ({home_name} 시장 우위)"
     elif extreme_edge and edge > 0:
@@ -55,7 +79,11 @@ def evaluate(
     elif extreme_edge and edge < 0:
         label = f"⚠️ 극단적 역edge {edge:+.1f}%p — 마켓 데이터 이상 의심 ({home_name} 시장 과대평가)"
     elif max_model_pct >= 75.0 and edge >= 15.0:
-        label = f"🚨 극단적 Value Bet 후보 ({home_name}) — 신중 검토 필요"
+        label = f"🚨 극단 Edge (마켓 이상 의심) — {home_name} edge {edge:+.1f}%p"
+    elif abs_edge >= 25.0:
+        label = f"🚨 극단 Edge (마켓 이상 의심) — {home_name} edge {edge:+.1f}%p"
+    elif edge >= 15.0:
+        label = f"🔥 Strong Value Bet ({home_name}) — edge {edge:+.1f}%p"
     elif edge >= threshold:
         label = f"✅ Value Bet 후보 ({home_name})"
     elif edge <= -threshold:

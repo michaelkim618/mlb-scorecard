@@ -33,7 +33,7 @@ from lineup_fetcher       import (get_game_lineup, get_pitcher_handedness,
                                    get_previous_day_lineup)
 from kalshi_client        import get_kalshi_prob
 from value_bet            import evaluate
-from injury_check         import get_injury_notes
+from injury_check         import get_injury_notes, get_injury_penalty
 import requests as _requests
 
 OUTPUT_DIR  = Path(__file__).parent.parent / "output"
@@ -411,6 +411,13 @@ def run(game_date: Optional[str] = None) -> list:
             return f"ERA {era}{fatigue} ({cnt}명)"
         print(f"    [불펜] {away_name}: {_bp_label(away_bp_detail)} → {away_bp_s}점 | {home_name}: {_bp_label(home_bp_detail)} → {home_bp_s}점")
 
+        # 클로저 정보 로그 출력
+        for _team_name, _bp_detail in [(away_name, away_bp_detail), (home_name, home_bp_detail)]:
+            _c_name = _bp_detail.get("closer_name")
+            _c_era  = _bp_detail.get("closer_era")
+            if _c_name is not None and _c_era is not None:
+                print(f"    [클로저] {_c_name}: ERA {_c_era} → 불펜점수 반영")
+
         # ── 3. 타선 분석 ─────────────────────────────────────────────
         #   우선순위: ① 확정 라인업+시즌OPS  ② 전날 라인업+LHP/RHP스플릿  ③ 팀통계
         # 홈/원정 분리 로그 (예측 정확도 + UI 표시용)
@@ -501,6 +508,20 @@ def run(game_date: Optional[str] = None) -> list:
 
         away_bat_s = batting_score(away_bat_detail)
         home_bat_s = batting_score(home_bat_detail)
+
+        # ── 3.5 부상 페널티 (타자 주전 부상자 → 타선 점수 차감) ─────────
+        inj_penalty = _safe(lambda: get_injury_penalty(away_id, home_id),
+                            {"away_penalty": 0.0, "home_penalty": 0.0,
+                             "away_detail": [], "home_detail": []}, "부상페널티")
+        if inj_penalty["away_penalty"] > 0:
+            n_away_inj = len(inj_penalty["away_detail"])
+            away_bat_s = max(0.0, away_bat_s - inj_penalty["away_penalty"])
+            print(f"    [부상페널티] {away_name} 타자주전 {n_away_inj}명 → 타선 -{inj_penalty['away_penalty']}pt")
+        if inj_penalty["home_penalty"] > 0:
+            n_home_inj = len(inj_penalty["home_detail"])
+            home_bat_s = max(0.0, home_bat_s - inj_penalty["home_penalty"])
+            print(f"    [부상페널티] {home_name} 타자주전 {n_home_inj}명 → 타선 -{inj_penalty['home_penalty']}pt")
+
         away_split_label = f"원정{len(away_hit_split.get('away',[]))}경기" if away_hit_split.get("away") else "전체10경기"
         home_split_label = f"홈{len(home_hit_split.get('home',[]))}경기"  if home_hit_split.get("home")  else "전체10경기"
         def _trend_label(detail):
@@ -881,6 +902,24 @@ def run(game_date: Optional[str] = None) -> list:
         exp_away = _expected_runs(away_bat_s, home_def_s, 0.0)
         exp_home = _expected_runs(home_bat_s, away_def_s, 0.05)  # 홈 미세 보정
 
+        # ── 9.5 홈팀 박빙 보정 ────────────────────────────────────────
+        # 최종 확률 50~55% 박빙 구간: 원정팀 pick이면 홈 이점 감안 -2.5% 보정
+        # 홈팀 pick이면 이미 HOME_BONUS 포함 → 변경 없음
+        CLOSE_GAME_LOW  = 50.0
+        CLOSE_GAME_HIGH = 55.0
+        CLOSE_GAME_ADJ  = 2.5
+
+        if CLOSE_GAME_LOW <= away_win_pct <= CLOSE_GAME_HIGH and away_win_pct > home_win_pct:
+            # 원정팀이 픽된 박빙 경기 → 원정팀 확률 하향
+            orig_away_pct = away_win_pct
+            away_win_pct = max(CLOSE_GAME_LOW, away_win_pct - CLOSE_GAME_ADJ)
+            home_win_pct = round(100.0 - away_win_pct, 1)
+            if away_win_pct < CLOSE_GAME_LOW:
+                result_label = f"홈픽전환({home_name} {home_win_pct}%)"
+            else:
+                result_label = f"원정픽유지({away_name} {away_win_pct}%)"
+            print(f"    [🏠 박빙홈보정] 원정픽 {orig_away_pct}% → 홈이점 -{CLOSE_GAME_ADJ}% → {result_label}")
+
         # ── 10. Kalshi + Value Bet ─────────────────────────────────────
         # 고위험 경기 판정: 양 팀 선발 ERA 모두 BOTH_SP_HIGH_ERA_THRESHOLD 이상
         both_sp_high_era = (away_sp_era >= BOTH_SP_HIGH_ERA_THRESHOLD and
@@ -889,14 +928,15 @@ def run(game_date: Optional[str] = None) -> list:
             print(f"    [⚠️ 고위험] 양팀 선발 ERA 모두 {BOTH_SP_HIGH_ERA_THRESHOLD}+ "
                   f"({away_name} {away_sp_era} / {home_name} {home_sp_era}) → 예측 신뢰도 낮음")
 
-        # 라인업 미공개(팀통계) 경기는 신뢰도 부족 → Value Bet 패스
-        if bat_source == "team_stats":
+        # 라인업 미공개(팀통계) 경기는 신뢰도 부족 → Value Bet 패스 (evaluate() 내부에서 처리)
+        lineup_confirmed = (bat_source != "team_stats")
+        if not lineup_confirmed:
             kalshi_home = None
-            vb = {
-                "kalshi_prob": None,
-                "edge": None,
-                "value_bet": "⏭️ 패스 (라인업 미공개)",
-            }
+            vb = evaluate(
+                home_win_pct, kalshi_home, home_name, away_name,
+                model_pct=max(home_win_pct, away_win_pct),
+                lineup_confirmed=False,
+            )
             print(f"    [Value Bet] 라인업 미공개 → 패스")
         elif both_cold:
             # 양팀 선발 모두 Cold → 불펜전: 예측 신뢰도 매우 낮음 → Value Bet 자동 제외
@@ -904,8 +944,12 @@ def run(game_date: Optional[str] = None) -> list:
                 lambda: get_kalshi_prob(game_date, away_name, home_name),
                 (None, None), "Kalshi"
             )
-            vb = evaluate(home_win_pct, kalshi_home, home_name, away_name)
-            if vb.get("value_bet", "").startswith("✅"):
+            vb = evaluate(
+                home_win_pct, kalshi_home, home_name, away_name,
+                model_pct=max(home_win_pct, away_win_pct),
+                lineup_confirmed=lineup_confirmed,
+            )
+            if vb.get("value_bet", "").startswith("✅") or vb.get("value_bet", "").startswith("🔥"):
                 vb["value_bet"] = "⏭️ 패스 (불펜전 — 양팀 선발 Cold, 예측 신뢰 낮음)"
                 print(f"    [Value Bet] 양팀 선발 Cold 불펜전 → Value Bet 자동 제외")
         elif both_sp_high_era:
@@ -930,7 +974,32 @@ def run(game_date: Optional[str] = None) -> list:
                 lambda: get_kalshi_prob(game_date, away_name, home_name),
                 (None, None), "Kalshi"
             )
-            vb = evaluate(home_win_pct, kalshi_home, home_name, away_name)
+
+            # ── Kalshi 큰 괴리 보정 ───────────────────────────────────
+            # |edge| >= 15%p일 때 모델을 Kalshi 방향으로 25% 당김
+            KALSHI_GAP_THRESHOLD = 15.0
+            KALSHI_PULL_RATIO    = 0.25
+            if kalshi_home is not None:
+                kalshi_edge = home_win_pct - kalshi_home  # 양수: 모델이 홈 더 선호
+                if abs(kalshi_edge) >= KALSHI_GAP_THRESHOLD:
+                    adj = abs(kalshi_edge) * KALSHI_PULL_RATIO
+                    if kalshi_edge > 0:
+                        # 모델이 홈을 과대평가 → 홈 pct 하향 (Kalshi 방향)
+                        home_win_pct = round(home_win_pct - adj, 1)
+                        away_win_pct = round(100.0 - home_win_pct, 1)
+                        direction = "홈하향"
+                    else:
+                        # 모델이 홈을 과소평가 → 홈 pct 상향 (Kalshi 방향)
+                        home_win_pct = round(home_win_pct + adj, 1)
+                        away_win_pct = round(100.0 - home_win_pct, 1)
+                        direction = "홈상향"
+                    print(f"    [🔄 Kalshi보정] edge {kalshi_edge:+.1f}%p ≥ {KALSHI_GAP_THRESHOLD} → 모델 {direction} {adj:.1f}%p 보정")
+
+            vb = evaluate(
+                home_win_pct, kalshi_home, home_name, away_name,
+                model_pct=max(home_win_pct, away_win_pct),
+                lineup_confirmed=lineup_confirmed,
+            )
 
             # ── Value Bet 선발 Hot/Cold 필터 ─────────────────────────
             if vb.get("value_bet", "").startswith("✅"):

@@ -103,6 +103,15 @@ def bullpen_score(stats: dict) -> float:
     elif avg_app_per_pitcher >= 2.0:
         score = max(0.0, score - 1.5)    # 경미
 
+    # ── D. 클로저 별도 가중치 (20%) ──────────────────────────────
+    closer_era = stats.get("closer_era")
+    if closer_era is not None:
+        closer_score = max(0.0, min(100.0, (6.5 - closer_era) / 5.0 * 100.0))
+        score = score * 0.80 + closer_score * 0.20
+        # 클로저 ERA가 나쁘면 추가 페널티
+        if closer_era > 4.5:
+            score = max(0.0, score - 2.0)
+
     score = min(score, BULLPEN_SCORE_CAP)
     return round(score, 1)
 
