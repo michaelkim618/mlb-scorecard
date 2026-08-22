@@ -39,6 +39,12 @@
     "hard_cap": 63.0,
     "hard_cap_opp_threshold": 50.0,
     "hard_cap_reduced": 60.0,
+    "dynamic_cap_tiers": [
+      {"min_gap": 25.0, "cap": 65.0},
+      {"min_gap": 15.0, "cap": 63.0},
+      {"min_gap":  8.0, "cap": 61.5},
+      {"min_gap":  0.0, "cap": 60.0}
+    ],
     "coors_sp_penalty": 5.0,
     "coors_bat_bonus": 4.0,
     "sp_era_risk_threshold": 5.0,

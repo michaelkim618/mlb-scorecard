@@ -140,7 +140,14 @@ def run(game_date: Optional[str] = None) -> list:
     COORS_SP_PENALTY        = float(sc_cfg.get("coors_sp_penalty",        8.0))
     COORS_BAT_BONUS         = float(sc_cfg.get("coors_bat_bonus",         6.0))
     HARD_CAP_OPP_THRESHOLD  = float(sc_cfg.get("hard_cap_opp_threshold", 50.0))
-    HARD_CAP_REDUCED        = float(sc_cfg.get("hard_cap_reduced",       63.0))
+    HARD_CAP_REDUCED        = float(sc_cfg.get("hard_cap_reduced",       60.0))
+    # 동적 차별화 캡: 점수 차이(raw_score_gap)에 따라 캡을 단계적으로 적용
+    # 형식: [{"min_gap": 25, "cap": 65}, {"min_gap": 15, "cap": 63}, ...]  (내림차순 정렬 필요)
+    _raw_tiers = sc_cfg.get("dynamic_cap_tiers", [])
+    DYNAMIC_CAP_TIERS = sorted(
+        [{"min_gap": float(t["min_gap"]), "cap": float(t["cap"])} for t in _raw_tiers],
+        key=lambda x: x["min_gap"], reverse=True
+    ) if _raw_tiers else []
     # 선발 ERA 위험 플래그: 선발 ERA 5.0↑ + 상대 타선 60점↑ 시 상대 타선 보너스
     SP_ERA_RISK_THRESHOLD   = float(sc_cfg.get("sp_era_risk_threshold",   5.0))
     SP_ERA_RISK_BAT_BONUS   = float(sc_cfg.get("sp_era_risk_bat_bonus",   8.0))
@@ -849,25 +856,39 @@ def run(game_date: Optional[str] = None) -> list:
         away_win_pct = round(50.0 + (away_win_pct - 50.0) * eff_shrink, 1)
         home_win_pct = round(100.0 - away_win_pct, 1)
 
-        # ── 8. 최종 하드캡 (상대팀 강도 반영 동적 캡) ───────────────
-        # 수요일은 별도 낮은 캡 적용
+        # ── 8. 최종 하드캡 (차별화된 동적 캡 시스템 v7) ───────────────
+        # raw_score_gap: 두 팀의 스코어카드 점수 차이 (HOME_BONUS 반영 전 순수 점수)
+        _raw_cap_gap = abs(sc["home_total"] - sc["away_total"])
+
         if is_wednesday and WED_ENABLED:
+            # 수요일: 불펜 소진으로 낮은 캡 고정
             effective_cap = min(WED_HARD_CAP, HARD_CAP)
+            cap_label = f"수요일{WED_HARD_CAP}%캡"
+        elif DYNAMIC_CAP_TIERS:
+            # 동적 차별화 캡: raw_score_gap에 따라 단계적 캡 적용
+            # 예: gap≥25 → 65%, gap≥15 → 63%, gap≥8 → 61.5%, gap≥0 → 60%
+            effective_cap = HARD_CAP_REDUCED  # 기본값 (fallback)
+            for tier in DYNAMIC_CAP_TIERS:   # 내림차순 정렬되어 있음
+                if _raw_cap_gap >= tier["min_gap"]:
+                    effective_cap = tier["cap"]
+                    break
+            # 전체 상한선은 HARD_CAP으로 제한
+            effective_cap = min(effective_cap, HARD_CAP)
+            cap_label = f"동적캡(gap={_raw_cap_gap:.1f}pt→{effective_cap}%)"
         else:
-            # 상대팀 총점이 임계값 이상이면 캡을 낮춤 (양팀 다 강한 경우 과신 방지)
+            # fallback: 구버전 상대강팀 기반 캡
             opp_strong = (sc["home_total"] >= HARD_CAP_OPP_THRESHOLD or
                           sc["away_total"] >= HARD_CAP_OPP_THRESHOLD)
             effective_cap = HARD_CAP_REDUCED if opp_strong else HARD_CAP
+            cap_label = f"상대강팀{HARD_CAP_REDUCED}%캡"
 
         if away_win_pct > effective_cap:
             away_win_pct = effective_cap
             home_win_pct = round(100.0 - away_win_pct, 1)
-            cap_label = f"수요일{WED_HARD_CAP}%캡" if (is_wednesday and WED_ENABLED) else (f"상대강팀{HARD_CAP_REDUCED}%캡" if not (is_wednesday and WED_ENABLED) else "")
             print(f"    [하드캡] {away_name} {away_win_pct}%로 제한 ({cap_label})")
         elif home_win_pct > effective_cap:
             home_win_pct = effective_cap
             away_win_pct = round(100.0 - home_win_pct, 1)
-            cap_label = f"수요일{WED_HARD_CAP}%캡" if (is_wednesday and WED_ENABLED) else (f"상대강팀{HARD_CAP_REDUCED}%캡" if not (is_wednesday and WED_ENABLED) else "")
             print(f"    [하드캡] {home_name} {home_win_pct}%로 제한 ({cap_label})")
 
         # ── 8.5 Cold SP 불펜 안전망 보정 (아이디어 B) ────────────────
