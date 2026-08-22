@@ -301,7 +301,12 @@ def check_and_post_predictions(game_date: str):
         run_pipeline(game_date)
         copy_predictions_to_web(game_date)
         # run_instagram_post(game_date)  # 인스타그램 자동 포스팅 비활성화
-        run_twitter_post(game_date, post_type="prediction")
+
+        # 트위터 예측 트윗: 하루 1번만 (첫 포스팅 그룹에만 전송)
+        if not posted_groups:  # 오늘 첫 포스팅일 때만
+            run_twitter_post(game_date, post_type="prediction")
+        else:
+            print(f"  🐦 트위터 예측 트윗 스킵 (오늘 {len(posted_groups)}차 이미 발송)")
 
         # 상태 저장
         posted_groups.append(key)
@@ -340,7 +345,7 @@ def check_and_post_results(game_date: str):
     if js_path.exists():
         try:
             content = js_path.read_text(encoding="utf-8")
-            match = _re.search(r'=\s*(\[.*\])', content, re.DOTALL)
+            match = _re.search(r'=\s*(\[.*\])', content, _re.DOTALL)
             if match:
                 import json as _json
                 games_data = _json.loads(match.group(1))

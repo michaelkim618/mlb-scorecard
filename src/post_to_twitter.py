@@ -207,10 +207,34 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
     )
     return tweet
 
+def load_day_results(post_date: str) -> list:
+    """season_results.json에서 해당 날짜 경기 결과 로드 (더 신뢰성 높음)"""
+    web_candidates = [
+        BASE_DIR / "mlb-scorecard-web",
+        BASE_DIR.parent / "mlb-scorecard-web",
+        Path.home() / "Desktop" / "mlb-scorecard-web",
+    ]
+    for w in web_candidates:
+        f = w / "public" / "season_results.json"
+        if f.exists():
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                return [g for g in data.get("games", []) if g.get("date") == post_date and g.get("actual_winner")]
+            except Exception:
+                pass
+    return []
+
+
 def build_results_tweet(post_date: str, preds: list) -> str:
     date_label = format_date_label(post_date)
 
-    finished = [g for g in preds if g.get("actual_winner")]
+    # season_results.json 우선 사용 (actual_winner 확실히 있음)
+    finished = load_day_results(post_date)
+
+    # fallback: predictions.json
+    if not finished:
+        finished = [g for g in preds if g.get("actual_winner")]
+
     if not finished:
         return (
             f"📊 MLB Results | {date_label}\n\n"
@@ -221,16 +245,27 @@ def build_results_tweet(post_date: str, preds: list) -> str:
     correct = 0
     result_lines = []
     for g in finished:
-        wp = g.get("win_prob", {})
-        away_pct = wp.get("away", 50)
-        home_pct = wp.get("home", 50)
-        pick = abbr(g["home"]) if home_pct >= away_pct else abbr(g["away"])
-        actual = abbr(g["actual_winner"])
-        hit = pick == actual
+        # season_results 구조: pick, actual_winner, correct, away, home
+        if "pick" in g:
+            pick_team = abbr(g["pick"])
+            actual = abbr(g["actual_winner"])
+            hit = g.get("correct", pick_team == actual)
+            away_t = abbr(g.get("away", ""))
+            home_t = abbr(g.get("home", ""))
+        else:
+            # predictions.json 구조 fallback
+            wp = g.get("win_prob", {})
+            home_pct = wp.get("home", 50)
+            away_pct = wp.get("away", 50)
+            pick_team = abbr(g["home"]) if home_pct >= away_pct else abbr(g["away"])
+            actual = abbr(g["actual_winner"])
+            hit = pick_team == actual
+            away_t = abbr(g.get("away", ""))
+            home_t = abbr(g.get("home", ""))
         if hit:
             correct += 1
         mark = "✅" if hit else "❌"
-        result_lines.append(f"{mark} {abbr(g['away'])} @ {abbr(g['home'])} → {pick} ({actual})")
+        result_lines.append(f"{mark} {away_t} @ {home_t} → {pick_team} ({actual})")
 
     total = len(finished)
     pct = correct / total * 100
