@@ -291,8 +291,16 @@ def pitcher_score(stats: dict, season_era: float = None,
           fb_velo < 92 mph → -3pt  (기준 미달: 타자가 타이밍 잡기 쉬움, 실점 리스크 상승)
           fb_velo is None  →  0pt  (데이터 없음: 페널티 미적용)
     """
-    era    = stats.get("era",     4.50)
+    # ERA None 처리: 데이터 없음 → 리그 평균보다 약간 나쁜 5.00 적용 + 샘플 신뢰도 낮춤
+    # (기존 4.50 기본값은 "평균 수준"으로 가정 → 실제론 정보 없음이므로 보수적으로)
+    _era_raw = stats.get("era")
+    era_is_unknown = (_era_raw is None)
+    era    = float(_era_raw) if _era_raw is not None else 5.00
+
     whip   = stats.get("whip",    1.35)
+    if stats.get("whip") is None:
+        whip = 1.40  # ERA 없으면 WHIP도 모름 → 평균보다 약간 나쁘게
+
     k9     = stats.get("k9",      7.0)
     avg_ip = stats.get("avg_ip",  5.0)
     qs     = stats.get("qs_rate", 30.0)
@@ -314,6 +322,9 @@ def pitcher_score(stats: dict, season_era: float = None,
 
     # 샘플 신뢰도 보정: n_games < 5이면 리그 평균(45pt) 방향으로 회귀
     LEAGUE_AVG = 45.0
+    # ERA 데이터 자체가 없는 경우 → 신뢰도를 0.5로 강제 낮춤 (불확실성 반영)
+    if era_is_unknown:
+        conf = min(conf, 0.5)
     score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
 
     # 트렌드 보정

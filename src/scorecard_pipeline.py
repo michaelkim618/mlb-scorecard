@@ -589,8 +589,9 @@ def run(game_date: Optional[str] = None) -> list:
 
         # ── 4.7 선발 ERA 위험 플래그 보정 ────────────────────────────
         # 선발 ERA 5.0↑ + 상대 타선 60점↑ → 상대 타선 추가 보너스 (대량 실점 위험)
-        away_sp_era = away_sp_detail.get("era", 4.50)
-        home_sp_era = home_sp_detail.get("era", 4.50)
+        # ERA None → 5.00 (보수적 기본값, pitcher_score와 동일 기준)
+        away_sp_era = away_sp_detail.get("era") or 5.00
+        home_sp_era = home_sp_detail.get("era") or 5.00
 
         if away_sp_era >= SP_ERA_RISK_THRESHOLD and home_bat_s >= SP_ERA_RISK_BAT_MIN:
             home_bat_s = min(100.0, home_bat_s + SP_ERA_RISK_BAT_BONUS)
@@ -898,8 +899,8 @@ def run(game_date: Optional[str] = None) -> list:
         COLD_BP_WEIGHT = 0.65
         COLD_SP_WEIGHT = 0.35
 
-        away_sp_era_val = away_sp_detail.get("era", 4.5) or 4.5
-        home_sp_era_val = home_sp_detail.get("era", 4.5) or 4.5
+        away_sp_era_val = away_sp_detail.get("era") or 5.0
+        home_sp_era_val = home_sp_detail.get("era") or 5.0
 
         away_cold_bp_boost = (away_trend == "cold" and away_sp_era_val >= COLD_SP_ERA_THRESHOLD)
         home_cold_bp_boost = (home_trend == "cold" and home_sp_era_val >= COLD_SP_ERA_THRESHOLD)
