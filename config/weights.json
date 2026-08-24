@@ -50,7 +50,19 @@
     "sp_era_risk_threshold": 5.0,
     "sp_era_risk_bat_bonus": 8.0,
     "sp_era_risk_bat_min": 60.0,
-    "both_sp_high_era_threshold": 5.0
+    "both_sp_high_era_threshold": 5.0,
+    "bat_floor": {
+      "enabled": true,
+      "trigger_below": 25.0,
+      "season_blend_ratio": 0.40,
+      "tier_floors": {
+        "top":    35.0,
+        "mid":    25.0,
+        "bottom": 15.0
+      },
+      "top_win_pct":    0.560,
+      "bottom_win_pct": 0.440
+    }
   },
   "wednesday_adjustment": {
     "enabled": true,

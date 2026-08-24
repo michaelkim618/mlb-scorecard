@@ -148,6 +148,18 @@ def run(game_date: Optional[str] = None) -> list:
         [{"min_gap": float(t["min_gap"]), "cap": float(t["cap"])} for t in _raw_tiers],
         key=lambda x: x["min_gap"], reverse=True
     ) if _raw_tiers else []
+    # ── 타선 점수 하한선 (방법 C: 순위 기반 티어 + 시즌 블렌딩) ──────────
+    _bat_floor_cfg          = sc_cfg.get("bat_floor", {})
+    BAT_FLOOR_ENABLED       = bool(_bat_floor_cfg.get("enabled", True))
+    BAT_FLOOR_TRIGGER       = float(_bat_floor_cfg.get("trigger_below",    25.0))
+    BAT_FLOOR_BLEND_RATIO   = float(_bat_floor_cfg.get("season_blend_ratio", 0.40))
+    _tier_floors            = _bat_floor_cfg.get("tier_floors", {})
+    BAT_FLOOR_TOP           = float(_tier_floors.get("top",    35.0))
+    BAT_FLOOR_MID           = float(_tier_floors.get("mid",    25.0))
+    BAT_FLOOR_BOT           = float(_tier_floors.get("bottom", 15.0))
+    BAT_FLOOR_TOP_WPCT      = float(_bat_floor_cfg.get("top_win_pct",    0.560))
+    BAT_FLOOR_BOT_WPCT      = float(_bat_floor_cfg.get("bottom_win_pct", 0.440))
+
     # 선발 ERA 위험 플래그: 선발 ERA 5.0↑ + 상대 타선 60점↑ 시 상대 타선 보너스
     SP_ERA_RISK_THRESHOLD   = float(sc_cfg.get("sp_era_risk_threshold",   5.0))
     SP_ERA_RISK_BAT_BONUS   = float(sc_cfg.get("sp_era_risk_bat_bonus",   8.0))
@@ -529,6 +541,49 @@ def run(game_date: Optional[str] = None) -> list:
             home_bat_s = max(0.0, home_bat_s - inj_penalty["home_penalty"])
             print(f"    [부상페널티] {home_name} 타자주전 {n_home_inj}명 → 타선 -{inj_penalty['home_penalty']}pt")
 
+        # ── 3.7 타선 점수 하한선 보정 (방법 C: 시즌 블렌딩 + 순위 티어 플로어) ──
+        # 최근 10경기 슬럼프로 타선이 극단적으로 낮게 계산될 때 보정
+        # 1단계: 시즌 OPS 기반 시즌 타선 점수 추정 후 블렌딩
+        # 2단계: 팀 승률 기반 티어 하한선으로 최소값 보장
+        def _apply_bat_floor(bat_s: float, bat_detail: dict, st: dict, team_name: str) -> float:
+            if not BAT_FLOOR_ENABLED or bat_s >= BAT_FLOOR_TRIGGER:
+                return bat_s
+
+            # 시즌 OPS → 시즌 타선 점수 추정 (batting_score와 같은 스케일)
+            s_ops  = float(bat_detail.get("season_ops", 0.720) or 0.720)
+            s_slg  = float(bat_detail.get("season_slg", 0.400) or 0.400)
+            s_avg  = float(bat_detail.get("season_avg", 0.250) or 0.250)
+            ops_s  = max(0.0, min(100.0, (s_ops - 0.600) / 0.350 * 100.0))
+            slg_s  = max(0.0, min(100.0, (s_slg - 0.300) / 0.300 * 100.0))
+            avg_s  = max(0.0, min(100.0, (s_avg - 0.200) / 0.160 * 100.0))
+            season_bat_s = ops_s * 0.40 + slg_s * 0.30 + avg_s * 0.30
+
+            # 1단계: recent 60% + season 40% 블렌딩
+            blended = bat_s * (1.0 - BAT_FLOOR_BLEND_RATIO) + season_bat_s * BAT_FLOOR_BLEND_RATIO
+
+            # 2단계: 팀 승률로 티어 결정 → 최소 하한선 보장
+            win_pct = (st.get("wins", 65) / max(st.get("games_played", 130), 1))
+            if win_pct >= BAT_FLOOR_TOP_WPCT:
+                floor = BAT_FLOOR_TOP
+                tier  = "상위권"
+            elif win_pct <= BAT_FLOOR_BOT_WPCT:
+                floor = BAT_FLOOR_BOT
+                tier  = "하위권"
+            else:
+                floor = BAT_FLOOR_MID
+                tier  = "중위권"
+
+            final = max(blended, floor)
+            if final > bat_s:
+                print(f"    [🛡️ 타선하한선] {team_name} {bat_s:.1f}pt → {final:.1f}pt "
+                      f"(시즌블렌딩{blended:.1f}+{tier}하한{floor}pt, 승률{win_pct:.3f})")
+            return round(final, 1)
+
+        away_st = standings_map.get(away_id, {})
+        home_st = standings_map.get(home_id, {})
+        away_bat_s = _apply_bat_floor(away_bat_s, away_bat_detail, away_st, away_name)
+        home_bat_s = _apply_bat_floor(home_bat_s, home_bat_detail, home_st, home_name)
+
         away_split_label = f"원정{len(away_hit_split.get('away',[]))}경기" if away_hit_split.get("away") else "전체10경기"
         home_split_label = f"홈{len(home_hit_split.get('home',[]))}경기"  if home_hit_split.get("home")  else "전체10경기"
         def _trend_label(detail):
@@ -540,8 +595,7 @@ def run(game_date: Optional[str] = None) -> list:
         print(f"    [타선] {home_name}({home_split_label}): avg {home_bat_detail['recent_avg']:.3f} OPS {home_bat_detail['season_ops']:.3f} 득점 {home_bat_detail['runs_per_g']}{_trend_label(home_bat_detail)} → {home_bat_s}점")
 
         # ── 4. 상황 분석 ──────────────────────────────────────────────
-        away_st = standings_map.get(away_id, {})
-        home_st = standings_map.get(home_id, {})
+        # (away_st, home_st 는 3.7 타선하한선 보정에서 이미 정의됨)
 
         # 최근 15경기 홈/원정 승률 (시즌 전체와 50:50 블렌딩)
         # 시즌 초 홈 강팀이 최근 부진해도 과대평가되는 문제 방지
