@@ -170,13 +170,18 @@ jobs:
           fi
 
           if [ "$PRED_DATE" != "$TODAY" ]; then
-            echo "🔄 날짜 불일치 ($PRED_DATE ≠ $TODAY) — 당일 예측 자동 재생성 중..."
-            python src/scorecard_pipeline.py $TODAY
-            if [ -f output/predictions.json ]; then
-              cp output/predictions.json "$WEB_PRED"
-              echo "✅ 당일 예측 복구 완료 ($TODAY)"
+            # 미래 날짜(내일 예측 선반영)는 덮어쓰지 않음
+            if [[ "$PRED_DATE" > "$TODAY" ]]; then
+              echo "⏭️  predictions.json 날짜($PRED_DATE)가 오늘($TODAY)보다 미래 — 자동 복구 스킵 (내일 예측 유지)"
             else
-              echo "❌ 파이프라인 실패 — predictions.json 생성 안됨"
+              echo "🔄 날짜 불일치 ($PRED_DATE ≠ $TODAY) — 당일 예측 자동 재생성 중..."
+              python src/scorecard_pipeline.py $TODAY
+              if [ -f output/predictions.json ]; then
+                cp output/predictions.json "$WEB_PRED"
+                echo "✅ 당일 예측 복구 완료 ($TODAY)"
+              else
+                echo "❌ 파이프라인 실패 — predictions.json 생성 안됨"
+              fi
             fi
           else
             echo "✅ predictions.json 날짜 정상 ($TODAY) — 복구 불필요"
