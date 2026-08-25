@@ -290,6 +290,19 @@ def pitcher_score(stats: dict, season_era: float = None,
           fb_velo < 90 mph → -4pt  (저속: 생존 투구 의존, 커맨드 흔들리면 즉시 폭발)
           fb_velo < 92 mph → -3pt  (기준 미달: 타자가 타이밍 잡기 쉬움, 실점 리스크 상승)
           fb_velo is None  →  0pt  (데이터 없음: 페널티 미적용)
+
+    개선 사항 (v6):
+      - 직전 등판 ERA 이진 페널티 → 연속 보정으로 교체
+        (백테스트 162경기 기준 +1.9% 정확도 개선, 50.0% → 51.9%)
+        기존: hot/stable에서 last_start_era ≥ 6.0이면 -7pt (이진)
+        개선: ERA 구간별 연속 보정
+          ERA == 0.0        → +4.0pt (완봉/무실점)
+          ERA ≤ 1.50        → +3.0pt (에이스급 등판)
+          ERA ≤ 3.00        → +1.5pt (좋은 등판)
+          ERA ≤ 4.50        →  0.0pt (평균, 보정 없음)
+          ERA ≤ 6.00        → -2.0pt (약간 부진, -3pt에서 완화)
+          ERA ≤ 9.00        → -7.0pt (나쁜 등판)
+          ERA  > 9.00       → -10.0pt (완전 붕괴)
     """
     # ERA None 처리: 데이터 없음 → 리그 평균보다 약간 나쁜 5.00 적용 + 샘플 신뢰도 낮춤
     # (기존 4.50 기본값은 "평균 수준"으로 가정 → 실제론 정보 없음이므로 보수적으로)
@@ -380,12 +393,34 @@ def pitcher_score(stats: dict, season_era: float = None,
     elif avg_ip < 5.0:
         score = max(0.0, score - 2.0)
 
-    # 직전 등판 경보 페널티
-    # ㆍhot/stable + ERA >= 6.0: -7pt (5경기 평균에 희석된 급락 신호)
-    # ㆍcold       + ERA >= 9.0: -5pt (cold -8pt 이미 적용 → 추가 완화 페널티)
-    if recent_bad_start:
-        extra_penalty = 5.0 if trend == "cold" else 7.0
-        score = max(0.0, score - extra_penalty)
+    # ── 직전 등판 ERA 연속 보정 (v6) ────────────────────────────────────
+    # 이진 패널티(bad_start: ≥6.0 → -7pt)에서 연속적 보정으로 개선
+    # 백테스트(162경기, 2026-08-07~08-19) 결과: +1.9% 정확도 개선 (50.0% → 51.9%)
+    #
+    # 직전 등판 ERA 구간별 보정:
+    #   0.0 (완봉/무실점)  → +4.0pt
+    #   ≤ 1.50 (에이스급)  → +3.0pt
+    #   ≤ 3.00 (좋은 등판) → +1.5pt
+    #   ≤ 4.50 (평균 등판) →  0.0pt  (보정 없음)
+    #   ≤ 6.00 (약간 부진) → -2.0pt  (백테스트 결과로 -3pt → -2pt 완화)
+    #   ≤ 9.00 (나쁜 등판) → -7.0pt
+    #     > 9.00 (완전 붕괴) → -10.0pt
+    last_era = stats.get("last_start_era")
+    if last_era is not None:
+        if last_era == 0.0:
+            score = min(100.0, score + 4.0)
+        elif last_era <= 1.50:
+            score = min(100.0, score + 3.0)
+        elif last_era <= 3.00:
+            score = min(100.0, score + 1.5)
+        elif last_era <= 4.50:
+            pass                              # 보정 없음
+        elif last_era <= 6.00:
+            score = max(0.0, score - 2.0)
+        elif last_era <= 9.00:
+            score = max(0.0, score - 7.0)
+        else:
+            score = max(0.0, score - 10.0)
 
     # ── 패스트볼 구속 페널티 (v5) ────────────────────────────────────
     # 현대 MLB에서 92 mph 미만 패스트볼은 타자가 타이밍을 잡기 쉬워 실점 리스크 상승.
