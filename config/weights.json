@@ -29,9 +29,9 @@
     "mc_weight":  0.70
   },
   "scorecard": {
-    "sp_weight":  0.30,
-    "bp_weight":  0.20,
-    "bat_weight": 0.35,
+    "sp_weight":  0.38,
+    "bp_weight":  0.22,
+    "bat_weight": 0.25,
     "sit_weight": 0.15,
     "home_bonus": 1.5,
     "sigmoid_k":  0.055,
