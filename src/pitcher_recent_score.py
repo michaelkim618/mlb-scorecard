@@ -175,17 +175,24 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
     l5_games  = len(last5)
     l5_avg_ip = round(l5_ip / l5_games, 1) if l5_games > 0 else 0.0
 
-    # 직전 2경기 per-game ERA 계산 — 최신 경향 포착용
-    last2_logs = logs[-2:] if len(logs) >= 2 else logs[-1:]
-    last2_eras = []
-    for s in last2_logs:
+    # 직전 2~3경기 per-game ERA 계산 — 이동 평균용
+    last3_logs = logs[-3:] if len(logs) >= 3 else logs
+    last3_eras = []
+    for s in last3_logs:
         ip = _ip_to_float(s.get("inningsPitched", "0"))
         er = float(s.get("earnedRuns", 0) or 0)
         if ip > 0:
-            last2_eras.append(round(er / ip * 9, 2))
+            last3_eras.append(round(er / ip * 9, 2))
+
+    # 하위 호환성을 위해 last2_eras도 유지
+    last2_eras = last3_eras[-2:] if len(last3_eras) >= 2 else last3_eras
 
     # 직전 마지막 등판 ERA (UI 표시용)
-    last_start_era = last2_eras[-1] if last2_eras else None
+    last_start_era = last3_eras[-1] if last3_eras else None
+
+    # 최근 2~3경기 이동 평균 ERA (v7: 노이즈 감소)
+    # 1경기만 있으면 그대로, 2경기 이상이면 평균 사용
+    recent_avg_era = round(sum(last3_eras) / len(last3_eras), 2) if last3_eras else None
 
     # 트렌드 판정 (절대 ERA 기준)
     if l5_avg_ip < 3.0:
@@ -241,8 +248,10 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
         "avg_ip":           avg_ip,
         "qs_rate":          qs_rate,
         "last3_era":        last5_era,       # 대시보드 표시용 (필드명 유지)
-        "last_start_era":   last_start_era,  # 직전 마지막 등판 ERA
+        "last_start_era":   last_start_era,  # 직전 마지막 등판 ERA (UI 표시용)
         "last2_eras":       last2_eras,      # 직전 2경기 per-game ERA 리스트
+        "last3_eras":       last3_eras,      # 직전 3경기 per-game ERA 리스트
+        "recent_avg_era":   recent_avg_era,  # 최근 2~3경기 이동 평균 ERA (v7)
         "recent_bad_start": recent_bad_start,# Hot/Stable인데 최근 2경기 중 1개라도 ERA >= 6.0
         "trend":            trend,
         "n_games":          n_games,
@@ -294,13 +303,17 @@ def pitcher_score(stats: dict, season_era: float = None,
     개선 사항 (v6):
       - 직전 등판 ERA 이진 페널티 → 연속 보정으로 교체
         (백테스트 162경기 기준 +1.9% 정확도 개선, 50.0% → 51.9%)
-        기존: hot/stable에서 last_start_era ≥ 6.0이면 -7pt (이진)
-        개선: ERA 구간별 연속 보정
+
+    개선 사항 (v7):
+      - 직전 1경기 ERA → 최근 2~3경기 이동 평균 ERA로 교체
+        단일 경기 ERA는 노이즈가 너무 큼 (예: Kirby ERA 16.20 → 다음 경기 바로 회복)
+        recent_avg_era = 최근 최대 3경기 per-game ERA 평균 사용
+        ERA 구간별 연속 보정 (v6와 동일 테이블, 입력값만 이동 평균으로 변경):
           ERA == 0.0        → +4.0pt (완봉/무실점)
           ERA ≤ 1.50        → +3.0pt (에이스급 등판)
           ERA ≤ 3.00        → +1.5pt (좋은 등판)
           ERA ≤ 4.50        →  0.0pt (평균, 보정 없음)
-          ERA ≤ 6.00        → -2.0pt (약간 부진, -3pt에서 완화)
+          ERA ≤ 6.00        → -2.0pt (약간 부진)
           ERA ≤ 9.00        → -7.0pt (나쁜 등판)
           ERA  > 9.00       → -10.0pt (완전 붕괴)
     """
@@ -393,31 +406,32 @@ def pitcher_score(stats: dict, season_era: float = None,
     elif avg_ip < 5.0:
         score = max(0.0, score - 2.0)
 
-    # ── 직전 등판 ERA 연속 보정 (v6) ────────────────────────────────────
-    # 이진 패널티(bad_start: ≥6.0 → -7pt)에서 연속적 보정으로 개선
-    # 백테스트(162경기, 2026-08-07~08-19) 결과: +1.9% 정확도 개선 (50.0% → 51.9%)
+    # ── 최근 2~3경기 이동 평균 ERA 연속 보정 (pitcher score v7) ─────────────
+    # v6: 직전 1경기 ERA → v7: 최근 2~3경기 이동 평균 ERA (노이즈 감소)
+    # 단일 경기 ERA는 변동성 과대 (예: Kirby ERA 16.20 → 다음 경기 즉시 회복)
+    # 이동 평균을 사용하면 일시적 이상값의 영향을 완화하고 실제 경향을 반영
     #
-    # 직전 등판 ERA 구간별 보정:
+    # ERA 구간별 보정 (입력값: recent_avg_era = 최근 최대 3경기 평균):
     #   0.0 (완봉/무실점)  → +4.0pt
     #   ≤ 1.50 (에이스급)  → +3.0pt
     #   ≤ 3.00 (좋은 등판) → +1.5pt
     #   ≤ 4.50 (평균 등판) →  0.0pt  (보정 없음)
-    #   ≤ 6.00 (약간 부진) → -2.0pt  (백테스트 결과로 -3pt → -2pt 완화)
+    #   ≤ 6.00 (약간 부진) → -2.0pt
     #   ≤ 9.00 (나쁜 등판) → -7.0pt
     #     > 9.00 (완전 붕괴) → -10.0pt
-    last_era = stats.get("last_start_era")
-    if last_era is not None:
-        if last_era == 0.0:
+    recent_avg_era = stats.get("recent_avg_era")
+    if recent_avg_era is not None:
+        if recent_avg_era == 0.0:
             score = min(100.0, score + 4.0)
-        elif last_era <= 1.50:
+        elif recent_avg_era <= 1.50:
             score = min(100.0, score + 3.0)
-        elif last_era <= 3.00:
+        elif recent_avg_era <= 3.00:
             score = min(100.0, score + 1.5)
-        elif last_era <= 4.50:
+        elif recent_avg_era <= 4.50:
             pass                              # 보정 없음
-        elif last_era <= 6.00:
+        elif recent_avg_era <= 6.00:
             score = max(0.0, score - 2.0)
-        elif last_era <= 9.00:
+        elif recent_avg_era <= 9.00:
             score = max(0.0, score - 7.0)
         else:
             score = max(0.0, score - 10.0)
