@@ -996,6 +996,28 @@ def run(game_date: Optional[str] = None) -> list:
                 result_label = f"원정픽유지({away_name} {away_win_pct}%)"
             print(f"    [🏠 박빙홈보정] 원정픽 {orig_away_pct}% → 홈이점 -{CLOSE_GAME_ADJ}% → {result_label}")
 
+        # ── 9.5 SP vs BAT 충돌 감지 ──────────────────────────────────────
+        # SP 점수가 한 팀을 가리키는데, BAT 점수가 반대 팀을 가리킬 때 경고
+        # 조건: SP 우위 팀 ≠ BAT 우위 팀  AND  각 차이가 모두 최소 임계값 이상
+        SP_BAT_CONFLICT_SP_MIN  = 10.0   # SP 점수 차이 최소 (이 이상이어야 충돌로 인정)
+        SP_BAT_CONFLICT_BAT_MIN =  8.0   # BAT 점수 차이 최소
+
+        sp_gap  = away_sp_s  - home_sp_s    # 양수 = 원정팀 SP 우위
+        bat_gap = away_bat_s - home_bat_s   # 양수 = 원정팀 타선 우위
+
+        # SP와 BAT가 서로 반대 팀을 가리키는지 (부호 반대)
+        sp_bat_conflict = (
+            abs(sp_gap)  >= SP_BAT_CONFLICT_SP_MIN and
+            abs(bat_gap) >= SP_BAT_CONFLICT_BAT_MIN and
+            (sp_gap > 0) != (bat_gap > 0)   # 부호 반대 = 다른 팀 가리킴
+        )
+
+        if sp_bat_conflict:
+            sp_favors  = away_name if sp_gap  > 0 else home_name
+            bat_favors = away_name if bat_gap > 0 else home_name
+            print(f"    [⚠️ SP↔BAT 충돌] SP우위={sp_favors}({sp_gap:+.1f}pt) ↔ "
+                  f"BAT우위={bat_favors}({bat_gap:+.1f}pt) → 예측 신뢰도 주의")
+
         # ── 10. Kalshi + Value Bet ─────────────────────────────────────
         # 고위험 경기 판정: 양 팀 선발 ERA 모두 BOTH_SP_HIGH_ERA_THRESHOLD 이상
         both_sp_high_era = (away_sp_era >= BOTH_SP_HIGH_ERA_THRESHOLD and
@@ -1302,6 +1324,13 @@ def run(game_date: Optional[str] = None) -> list:
             "value_bet":      vb["value_bet"],
             "extreme_edge":   vb.get("extreme_edge", False),
             "consensus":      vb.get("consensus", False),
+            "sp_bat_conflict": sp_bat_conflict,
+            "sp_bat_conflict_detail": {
+                "sp_favors":  (away_name if sp_gap  > 0 else home_name) if sp_bat_conflict else None,
+                "bat_favors": (away_name if bat_gap > 0 else home_name) if sp_bat_conflict else None,
+                "sp_gap":     round(sp_gap,  1),
+                "bat_gap":    round(bat_gap, 1),
+            } if sp_bat_conflict else None,
         })
 
     # ── 저장 ──────────────────────────────────────────────────────────
@@ -1313,6 +1342,21 @@ def run(game_date: Optional[str] = None) -> list:
         encoding="utf-8"
     )
     print(f"저장 완료 ({len(results)}경기)")
+
+    # ── 웹사이트 public/predictions.json 자동 동기화 ──────────────────
+    # mlb-scorecard-web/public/predictions.json 을 항상 최신으로 유지
+    WEB_PUBLIC_DIRS = [
+        Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "public",
+        Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "dist",
+    ]
+    for web_dir in WEB_PUBLIC_DIRS:
+        target = web_dir / "predictions.json"
+        if web_dir.exists():
+            target.write_text(json_payload, encoding="utf-8")
+            print(f"  [🌐 웹싱크] {target} 업데이트 완료")
+        else:
+            print(f"  [🌐 웹싱크] {web_dir} 없음 — 스킵")
+
     return results
 
 

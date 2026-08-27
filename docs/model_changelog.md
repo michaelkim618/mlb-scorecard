@@ -317,3 +317,86 @@ BP  20% — 시즌ERA × 동적가중치 + 최근7일ERA × 동적가중치 + �
 
 ### 커밋: `676c569`
 
+
+---
+
+# 2026-08-26 ~ 2026-08-27 업데이트
+
+## 1. SP vs BAT 충돌 감지 플래그 (`scorecard_pipeline.py`, `GameCard.jsx`)
+
+### 배경
+- 8/26 오답 분석 결과, SP 점수 우위 팀 ≠ BAT 점수 우위 팀인 경기에서 예측 신뢰도 저하 확인
+- DET vs TB: SP 우위 DET(+39.6pt) ↔ BAT 우위 TB(+10pt) → 실제 TB 승리 → 모델 오답
+
+### 구현
+**파이프라인 (스텝 9.5)**
+- 조건: `abs(sp_gap) ≥ 10pt AND abs(bat_gap) ≥ 8pt AND sp/bat가 다른 팀 가리킴`
+- 출력 JSON 신규 필드:
+  ```json
+  "sp_bat_conflict": true,
+  "sp_bat_conflict_detail": {
+    "sp_favors": "Detroit Tigers",
+    "bat_favors": "Tampa Bay Rays",
+    "sp_gap": -39.6,
+    "bat_gap": 10.0
+  }
+  ```
+- 파이프라인 로그: `[⚠️ SP↔BAT 충돌] SP우위=XXX(+Xpt) ↔ BAT우위=YYY(+Ypt) → 예측 신뢰도 주의`
+
+**웹사이트 (GameCard.jsx)**
+- `sp_bat_conflict: true`인 경기에 `⚡ SP↔BAT Conflict — Lower Confidence` 주황색 배지 표시
+- 마우스 오버 시 SP/BAT 우위 팀과 점수 차이 툴팁 제공
+
+---
+
+## 2. 웹사이트 자동 배포 자동화 (`scorecard_pipeline.py`, `main.py`) — 2026-08-27
+
+### 문제
+- `scorecard_pipeline.py` 실행 후 `mlb-predictor/output/predictions_YYYY-MM-DD.js`는 생성되지만
+- 웹사이트가 읽는 `mlb-scorecard-web/public/predictions.json`이 자동 업데이트되지 않아
+- 매일 수동으로 복사 + GitHub push 해야 하는 상황이 반복됨
+
+### 근본 원인
+파이프라인(`scorecard_pipeline.py`)과 웹사이트 repo(`mlb-scorecard-web`)가 별개로 운영되는데,
+두 경로를 연결하는 자동 동기화 로직이 없었음
+
+### 해결책
+
+**`scorecard_pipeline.py` — 저장 직후 웹싱크**
+```python
+WEB_PUBLIC_DIRS = [
+    Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "public",
+    Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "dist",
+]
+for web_dir in WEB_PUBLIC_DIRS:
+    target = web_dir / "predictions.json"
+    if web_dir.exists():
+        target.write_text(json_payload, encoding="utf-8")
+```
+→ 파이프라인 실행 시마다 `public/predictions.json` 자동 덮어쓰기
+
+**`main.py` — `cmd_deploy_web()` 신규 함수**
+- `scorecard_pipeline.run()` 완료 후 자동 호출
+- 동작: `git stash → pull rebase → stash pop → add → commit → push`
+- 에러 처리: "nothing to commit", "No stash entries" 등 정상 케이스 구분
+
+### 적용 후 플로우
+```
+python3 main.py
+  ↓
+scorecard_pipeline.run()
+  ├── output/predictions_YYYY-MM-DD.js  저장
+  ├── output/predictions.json           저장
+  ├── mlb-scorecard-web/public/predictions.json  ← 자동 동기화 (NEW)
+  └── mlb-scorecard-web/dist/predictions.json    ← 자동 동기화 (NEW)
+  ↓
+cmd_deploy_web()  ← 자동 호출 (NEW)
+  └── GitHub push → 사이트 자동 배포
+```
+
+### 파일 변경
+| 파일 | 변경 내용 |
+|------|-----------|
+| `src/scorecard_pipeline.py` | 저장 후 웹 public 폴더 자동 동기화 추가 |
+| `main.py` | `cmd_deploy_web()` 함수 추가, `cmd_predict_scorecard()` 에서 자동 호출 |
+

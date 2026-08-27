@@ -62,13 +62,59 @@ def cmd_update_results(verbose: bool = True):
         print(f"  ✅ {n}개 날짜 결과 업데이트 완료")
 
 
+def cmd_deploy_web(game_date: str):
+    """
+    웹사이트 자동 배포:
+    mlb-scorecard-web 의 public/predictions.json → GitHub push
+    scorecard_pipeline.run() 이 이미 파일을 동기화한 뒤 이 함수를 호출.
+    """
+    import subprocess
+    from pathlib import Path
+
+    WEB_DIR = Path(__file__).parent.parent / "mlb-scorecard-web"
+    if not WEB_DIR.exists():
+        print(f"  [🌐 배포] {WEB_DIR} 없음 — 스킵")
+        return
+
+    # git 상태 확인
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=WEB_DIR, capture_output=True, text=True
+    )
+    if not status.stdout.strip():
+        print("  [🌐 배포] 변경사항 없음 — 스킵")
+        return
+
+    print(f"  [🌐 배포] GitHub push 시작...")
+
+    # unstaged 변경사항 stash → pull → stash pop → add → commit → push
+    cmds = [
+        ["git", "stash"],
+        ["git", "pull", "--rebase", "origin", "main"],
+        ["git", "stash", "pop"],
+        ["git", "add", "public/predictions.json"],
+        ["git", "commit", "-m", f"📊 Auto-update: {game_date} (prediction)"],
+        ["git", "push", "origin", "main"],
+    ]
+    for cmd in cmds:
+        r = subprocess.run(cmd, cwd=WEB_DIR, capture_output=True, text=True)
+        out = r.stdout + r.stderr
+        # "nothing to commit" / "No local changes" 는 정상 케이스
+        if r.returncode != 0 and not any(s in out for s in [
+            "nothing to commit", "No local changes", "No stash entries"
+        ]):
+            print(f"  [🌐 배포] ⚠️ {' '.join(cmd)} 실패:\n{r.stderr.strip()}")
+            return
+    print(f"  [🌐 배포] ✅ GitHub push 완료 — 사이트 자동 업데이트 중")
+
+
 def cmd_predict_scorecard(game_date):
     from scorecard_pipeline import run
 
     # 예측 전에 과거 결과 자동 업데이트
     cmd_update_results(verbose=True)
 
-    results = run(game_date)
+    results = run(game_date)  # 내부에서 public/predictions.json 자동 동기화
     if not results:
         return
 
@@ -90,6 +136,9 @@ def cmd_predict_scorecard(game_date):
         pct = len(hits) / len(completed) * 100
         print(f"  모델 적중률    : {len(hits)}/{len(completed)} ({pct:.0f}%)")
     print(f"\n→ dashboard.html 을 브라우저에서 열어 확인하세요.")
+
+    # 웹사이트 자동 배포 (GitHub push)
+    cmd_deploy_web(game_date)
 
 
 def main():
