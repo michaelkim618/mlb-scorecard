@@ -445,3 +445,64 @@ cmd_deploy_web()               ← predictions + season + blog → GitHub push
 - launchd 방식은 Google Drive 경로 보안 문제로 포기
 - 대신 `python3 main.py` 한 번 실행으로 예측+시즌통계+블로그+배포 완결
 - GitHub Actions `daily_post.yml` 도 별도로 실행되므로 이중화됨
+
+---
+
+## 2026-08-27 — 30분 간격 라인업 갱신 프로세스 점검 및 기록
+
+### 현상
+BAL @ STL 경기에서 STL 선발(Gordon Graceffo)이 확정된 후에도 홈페이지에 반영 안 됨
+
+### 근본 원인 분석
+
+#### ① 자정 daily_init 시점에 STL 선발 TBD
+- GitHub Actions `daily_init` (자정 00:01 PST)에서 초기 예측 실행
+- 이 시점에 STL 선발이 미확정(TBD)이었음
+
+#### ② 30분 간격 재예측 로직은 정상이나 post_state 문제
+- `check_and_post.py`는 라인업 확정 감지 시 `run_pipeline()` → `copy_predictions_to_web()` 호출 (로직 정상)
+- BUT: `post_state_YYYY-MM-DD.json`이 웹 레포에 없으면 매 30분마다 상태가 리셋
+- 결과: 라인업 갱신 여부(`lineup_refreshed`)가 매 실행마다 초기화 → 재실행 반복 or 누락 가능
+
+#### ③ 수동 main.py 실행으로 해결
+- 오전 10:35 PST 수동 실행으로 Graceffo 반영된 predictions.json push 완료
+- 현재 GitHub 데이터: `home_pitcher: Gordon Graceffo`, `win_prob: {away: 63%, home: 37%}` 정상
+
+### 현재 30분 간격 업데이트 프로세스 전체 흐름
+
+```
+GitHub Actions (매 30분, 오전 6시~자정 PST)
+  ↓
+check_and_post.py 실행
+  ├── MLB API → 라인업 확정 여부 체크
+  ├── [새로 확정된 그룹 발견 시]
+  │     ├── run_pipeline() → scorecard_pipeline.py 재실행
+  │     ├── copy_predictions_to_web() → predictions.json 복사
+  │     └── post_state에 lineup_refreshed 기록
+  ├── [포스팅 타이밍 그룹 발견 시]
+  │     ├── Instagram 슬라이드 생성 & 포스팅
+  │     └── Twitter 포스팅
+  └── 웹 레포 커밋 & push
+```
+
+### 확인된 정상 동작 조건
+- `post_state_YYYY-MM-DD.json`이 웹 레포 `public/`에 존재해야 상태 유지
+- 없으면 GitHub Actions 매 실행마다 리셋 → 라인업 갱신 중복 실행 or 누락 위험
+
+### 주요 필드 매핑 (GameCard.jsx ↔ predictions.json)
+| 웹 표시 항목 | predictions.json 필드 |
+|------|------|
+| 선발 투수 이름 | `away_pitcher`, `home_pitcher` |
+| 선발 미확정 여부 | `sp_tbd.away`, `sp_tbd.home` |
+| 라인업 확정 배지 | `lineup_confirmed` |
+| 승률 바 | `win_prob.away`, `win_prob.home` |
+| 모델 픽 | `model_winner` |
+| 예측 신뢰도 배지 | `win_prob.away or home` ≥ 63% |
+| SP↔BAT 충돌 배지 | `sp_bat_conflict` + `sp_bat_conflict_detail` |
+
+### 파일 변경
+| 파일 | 변경 내용 |
+|------|-----------|
+| `docs/model_changelog.md` | 30분 라인업 갱신 프로세스 기록 |
+| `docs/session_2026-08-27.md` | 동일 내용 세션 노트 추가 |
+| `docs/PROCESS_RULES.md` | 프로세스 규칙서 신규 생성 |
