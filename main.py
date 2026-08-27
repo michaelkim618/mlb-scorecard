@@ -62,11 +62,59 @@ def cmd_update_results(verbose: bool = True):
         print(f"  ✅ {n}개 날짜 결과 업데이트 완료")
 
 
+def cmd_update_season_results():
+    """season_results.json 업데이트 (예측 결과 → 누적 정확도)"""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent / "src"))
+    from update_season_results import update
+    print("📈 Season Accuracy 업데이트 중...")
+    try:
+        update()
+        print("  ✅ season_results.json 업데이트 완료")
+    except Exception as e:
+        print(f"  ⚠️ season_results 업데이트 실패: {e}")
+
+
+def cmd_generate_blog(game_date: str):
+    """어제 경기 결과를 바탕으로 블로그 포스트 자동 생성"""
+    import sys
+    from pathlib import Path
+    from datetime import datetime, timedelta
+    sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+    WEB_REPO = Path(__file__).parent.parent / "mlb-scorecard-web"
+    if not WEB_REPO.exists():
+        print(f"  [📝 블로그] {WEB_REPO} 없음 — 스킵")
+        return
+
+    # 블로그 포스트는 "어제" 경기 결과로 생성 (결과 확정 후)
+    from datetime import date
+    today = datetime.strptime(game_date, "%Y-%m-%d").date()
+    yesterday = today - timedelta(days=1)
+    blog_date = yesterday.isoformat()
+
+    # 이미 생성된 포스트인지 확인
+    blog_file = WEB_REPO / "public" / "blog" / f"{blog_date}.json"
+    if blog_file.exists():
+        print(f"  [📝 블로그] {blog_date} 포스트 이미 존재 — 스킵")
+        return
+
+    print(f"  [📝 블로그] {blog_date} 포스트 생성 중...")
+    try:
+        from generate_blog_post import generate_daily_post, update_index
+        generate_daily_post(blog_date, WEB_REPO)
+        update_index(WEB_REPO)
+        print(f"  [📝 블로그] ✅ {blog_date} 포스트 생성 완료")
+    except Exception as e:
+        print(f"  [📝 블로그] ⚠️ 생성 실패: {e}")
+
+
 def cmd_deploy_web(game_date: str):
     """
     웹사이트 자동 배포:
-    mlb-scorecard-web 의 public/predictions.json → GitHub push
-    scorecard_pipeline.run() 이 이미 파일을 동기화한 뒤 이 함수를 호출.
+    mlb-scorecard-web 의 public/ 변경사항 → GitHub push
+    predictions.json, season_results.json, blog/ 모두 포함
     """
     import subprocess
     from pathlib import Path
@@ -92,8 +140,8 @@ def cmd_deploy_web(game_date: str):
         ["git", "stash"],
         ["git", "pull", "--rebase", "origin", "main"],
         ["git", "stash", "pop"],
-        ["git", "add", "public/predictions.json"],
-        ["git", "commit", "-m", f"📊 Auto-update: {game_date} (prediction)"],
+        ["git", "add", "public/predictions.json", "public/season_results.json", "public/blog/"],
+        ["git", "commit", "-m", f"📊 Auto-update: {game_date} (predictions + season + blog)"],
         ["git", "push", "origin", "main"],
     ]
     for cmd in cmds:
@@ -137,7 +185,13 @@ def cmd_predict_scorecard(game_date):
         print(f"  모델 적중률    : {len(hits)}/{len(completed)} ({pct:.0f}%)")
     print(f"\n→ dashboard.html 을 브라우저에서 열어 확인하세요.")
 
-    # 웹사이트 자동 배포 (GitHub push)
+    # Season Accuracy 업데이트
+    cmd_update_season_results()
+
+    # 어제 블로그 포스트 자동 생성
+    cmd_generate_blog(game_date)
+
+    # 웹사이트 자동 배포 (GitHub push) — predictions + season + blog 한번에
     cmd_deploy_web(game_date)
 
 

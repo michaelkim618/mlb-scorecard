@@ -400,3 +400,48 @@ cmd_deploy_web()  ← 자동 호출 (NEW)
 | `src/scorecard_pipeline.py` | 저장 후 웹 public 폴더 자동 동기화 추가 |
 | `main.py` | `cmd_deploy_web()` 함수 추가, `cmd_predict_scorecard()` 에서 자동 호출 |
 
+
+---
+
+## 2026-08-27 — Season Accuracy & Blog 자동 업데이트 통합
+
+### 문제
+- `season_results.json` — 매일 수동으로 `update_season_results.py` 실행 필요
+- `blog/` 포스트 — 매일 수동으로 `generate_blog_post.py` 실행 필요
+- launchd (`com.mlbscorecard.blog.plist`) — macOS 보안 정책으로 Google Drive 경로 접근 불가 (`Operation not permitted`, LastExitStatus=256)
+- `cmd_deploy_web()` — `predictions.json` 만 push, season_results와 blog는 누락
+
+### 해결
+`main.py` 에 두 함수 추가 → `cmd_predict_scorecard()` 에서 순서대로 자동 호출:
+
+1. **`cmd_update_season_results()`**: `update_season_results.update()` 호출 → `season_results.json` 자동 갱신
+2. **`cmd_generate_blog(game_date)`**: 어제 날짜 블로그 포스트가 없으면 자동 생성 → `generate_blog_post.generate_daily_post()` + `update_index()`
+3. **`cmd_deploy_web()` 확장**: `git add` 대상에 `public/season_results.json` + `public/blog/` 추가
+
+### 적용 후 플로우
+```
+python3 main.py
+  ↓
+cmd_update_results()           ← 과거 경기 결과 업데이트
+  ↓
+scorecard_pipeline.run()       ← 오늘 예측 생성 + 웹 파일 동기화
+  ↓
+cmd_update_season_results()    ← season_results.json 갱신 (NEW)
+  ↓
+cmd_generate_blog()            ← 어제 블로그 포스트 자동 생성 (NEW)
+  ↓
+cmd_deploy_web()               ← predictions + season + blog → GitHub push
+```
+
+### 파일 변경
+| 파일 | 변경 내용 |
+|------|-----------|
+| `main.py` | `cmd_update_season_results()` 신규 |
+| `main.py` | `cmd_generate_blog()` 신규 (어제 날짜, 중복 방지 체크) |
+| `main.py` | `cmd_deploy_web()` — git add 대상 확장 (season_results + blog) |
+| `main.py` | `cmd_predict_scorecard()` — season/blog 함수 순서대로 호출 |
+
+### 비고
+- launchd 방식은 Google Drive 경로 보안 문제로 포기
+- 대신 `python3 main.py` 한 번 실행으로 예측+시즌통계+블로그+배포 완결
+- GitHub Actions `daily_post.yml` 도 별도로 실행되므로 이중화됨
