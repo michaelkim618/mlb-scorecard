@@ -135,24 +135,36 @@ def cmd_deploy_web(game_date: str):
 
     print(f"  [🌐 배포] GitHub push 시작...")
 
-    # unstaged 변경사항 stash → pull → stash pop → add → commit → push
-    cmds = [
-        ["git", "stash"],
-        ["git", "pull", "--rebase", "origin", "main"],
-        ["git", "stash", "pop"],
-        ["git", "add", "public/predictions.json", "public/season_results.json", "public/blog/"],
-        ["git", "commit", "-m", f"📊 Auto-update: {game_date} (predictions + season + blog)"],
-        ["git", "push", "origin", "main"],
-    ]
-    for cmd in cmds:
-        r = subprocess.run(cmd, cwd=WEB_DIR, capture_output=True, text=True)
-        out = r.stdout + r.stderr
-        # "nothing to commit" / "No local changes" 는 정상 케이스
-        if r.returncode != 0 and not any(s in out for s in [
-            "nothing to commit", "No local changes", "No stash entries"
-        ]):
-            print(f"  [🌐 배포] ⚠️ {' '.join(cmd)} 실패:\n{r.stderr.strip()}")
-            return
+    # fetch + merge -X ours 방식 (rebase 대신):
+    # rebase는 staged 변경사항 있을 때 "cannot pull with rebase" 오류 발생
+    # merge -X ours: remote 변경 우선(news.json 등) + 우리 파일 충돌 시 우리 것 유지
+
+    def run_git(args, check=False):
+        r = subprocess.run(["git"] + args, cwd=WEB_DIR, capture_output=True, text=True)
+        return r
+
+    # 1. 우리가 변경한 파일만 stage
+    run_git(["add", "public/predictions.json", "public/season_results.json", "public/blog/"])
+
+    # 2. commit (nothing to commit이면 스킵)
+    r = run_git(["commit", "-m", f"📊 Auto-update: {game_date} (predictions + season + blog)"])
+    if r.returncode != 0 and "nothing to commit" not in r.stdout + r.stderr:
+        print(f"  [🌐 배포] ⚠️ commit 실패:\n{r.stderr.strip()}")
+        return
+
+    # 3. fetch → merge -X ours (충돌 시 우리 것 우선, rebase 오류 없음)
+    run_git(["fetch", "origin", "main"])
+    r = run_git(["merge", "origin/main", "--no-edit", "-X", "ours"])
+    if r.returncode != 0:
+        print(f"  [🌐 배포] ⚠️ merge 실패:\n{r.stderr.strip()}")
+        return
+
+    # 4. push
+    r = run_git(["push", "origin", "main"])
+    if r.returncode != 0:
+        print(f"  [🌐 배포] ⚠️ push 실패:\n{r.stderr.strip()}")
+        return
+
     print(f"  [🌐 배포] ✅ GitHub push 완료 — 사이트 자동 업데이트 중")
 
 
