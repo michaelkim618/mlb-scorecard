@@ -270,9 +270,11 @@ def update():
     api_results = fetch_actual_results_from_api(today_str)  # { "Away|Home": winner }
     today_preds = load_predictions_json(target_date=today_str)
     if not today_preds:
-        today_preds = load_predictions_json()  # 날짜 필터 없이 재시도
+        # 날짜 필터 없이 재시도 — 단, date 필드가 없거나 today_str 인 게임만 허용
+        all_preds = load_predictions_json()
+        today_preds = [g for g in all_preds if g.get("date", today_str) == today_str]
 
-    today_from_json = [g for g in today_preds if g.get("date", "") == today_str] or today_preds
+    today_from_json = today_preds  # date 기준 필터링은 위에서 완료; 여기서 다시 전체 fallback 금지
 
     for g in today_from_json:
         away_name = g.get("away", "")
