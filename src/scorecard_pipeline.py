@@ -406,6 +406,23 @@ def run(game_date: Optional[str] = None) -> list:
         print(f"    [선발] {away_name} {away_pitcher}{tbd_tag_away}: ERA {away_sp_detail['era']} WHIP {away_sp_detail['whip']} trend={away_sp_detail['trend']}{_sp_note(away_sp_detail)} → {away_sp_s}점")
         print(f"    [선발] {home_name} {home_pitcher}{tbd_tag_home}: ERA {home_sp_detail['era']} WHIP {home_sp_detail['whip']} trend={home_sp_detail['trend']}{_sp_note(home_sp_detail)} → {home_sp_s}점")
 
+        # ── 1b. 오프너 감지 — avg_ip < 3.0이면 SP 스코어 ×0.7 디스카운트 ──
+        # 근거: BOS G2 사례 — Alec Gamboa(릴리버 선발)가 Max Fried와 동급 SP스코어(49.8)로
+        #       처리됨. 오프너/릴리버 기용 시 실질적 선발 역할을 못하므로 SP점수 하향.
+        #       avg_ip가 3이닝 미만이면 오프너 패턴으로 간주.
+        # 임계값 2.0: Gamboa(1.8) 같은 진짜 오프너는 잡고
+        # Lynch(2.0 경계), Bachar(2.1) 같은 조기강판 선발은 제외
+        OPENER_IP_THRESHOLD = 2.0
+        OPENER_SP_DISCOUNT  = 0.70   # ×70% → 30% 디스카운트
+        if not away_is_tbd and away_sp_detail.get("avg_ip", 6.0) < OPENER_IP_THRESHOLD:
+            orig = away_sp_s
+            away_sp_s = round(away_sp_s * OPENER_SP_DISCOUNT, 1)
+            print(f"    [🔓 오프너감지] {away_name} {away_pitcher} avg_ip={away_sp_detail.get('avg_ip'):.1f} < {OPENER_IP_THRESHOLD} → SP {orig}→{away_sp_s}점 (-30%)")
+        if not home_is_tbd and home_sp_detail.get("avg_ip", 6.0) < OPENER_IP_THRESHOLD:
+            orig = home_sp_s
+            home_sp_s = round(home_sp_s * OPENER_SP_DISCOUNT, 1)
+            print(f"    [🔓 오프너감지] {home_name} {home_pitcher} avg_ip={home_sp_detail.get('avg_ip'):.1f} < {OPENER_IP_THRESHOLD} → SP {orig}→{home_sp_s}점 (-30%)")
+
         # ── 2. 불펜 분석 (Option 2: 실제 불펜 투수 시즌 ERA 직접 계산) ──
         away_bp_detail = _safe(lambda aid=away_id: get_bullpen_era_direct(aid), _default_bullpen(), "원정 불펜ERA")
         home_bp_detail = _safe(lambda hid=home_id: get_bullpen_era_direct(hid), _default_bullpen(), "홈 불펜ERA")
@@ -712,24 +729,71 @@ def run(game_date: Optional[str] = None) -> list:
         #
         #   격차 15~19p: bat_w +0.03 (SP에서 차감)
         #   격차 20p 이상: bat_w +0.05 (SP에서 차감)
-        # both_cold / any_cold 이미 적용된 경우에는 추가 조정 최소화 (SP_W 하한 0.25)
+        # ── 난타전 감지 (High-Scoring Game Detection) ────────────────
+        # 양팀 타선 점수가 모두 높을 때 → SP 의존도 낮추고 타선/불펜 비중 상향
+        # 근거: CIN@CHC(10-8) 같은 난타전은 선발 성적보다 타선 화력이 결과 결정
+        #
+        # 조건: min(away_bat_s, home_bat_s) ≥ 기준치
+        #   ≥ 35p (강한 난타전) : SP -0.07, BAT +0.05, BP +0.02
+        #   ≥ 30p (일반 난타전) : SP -0.05, BAT +0.03, BP +0.02
+        # SP 하한 0.20 보장 (과도한 축소 방지)
+        SLUGFEST_LG = 35.0   # 강한 난타전 기준
+        SLUGFEST_SM = 30.0   # 일반 난타전 기준
+        min_bat = min(away_bat_s, home_bat_s)
+        avg_bat = (away_bat_s + home_bat_s) / 2.0
+
+        if min_bat >= SLUGFEST_LG:
+            sp_cut  = min(0.07, max(0.0, eff_sp_w - 0.20))
+            bat_add = round(sp_cut * 0.70, 2)   # SP 삭감분의 70%를 타선으로
+            bp_add  = round(sp_cut * 0.30, 2)   # 나머지 30%를 불펜으로
+            eff_sp_w  = round(eff_sp_w  - sp_cut,  2)
+            eff_bat_w = round(eff_bat_w + bat_add, 2)
+            eff_bp_w  = round(eff_bp_w  + bp_add,  2)
+            print(f"    [⚾ 난타전감지-강] 양팀 타선 min={min_bat:.1f}p ≥ {SLUGFEST_LG}p "
+                  f"→ SP {eff_sp_w+sp_cut:.0%}→{eff_sp_w:.0%} "
+                  f"BAT {eff_bat_w-bat_add:.0%}→{eff_bat_w:.0%} "
+                  f"BP {eff_bp_w-bp_add:.0%}→{eff_bp_w:.0%}")
+        elif min_bat >= SLUGFEST_SM:
+            sp_cut  = min(0.05, max(0.0, eff_sp_w - 0.20))
+            bat_add = round(sp_cut * 0.60, 2)
+            bp_add  = round(sp_cut * 0.40, 2)
+            eff_sp_w  = round(eff_sp_w  - sp_cut,  2)
+            eff_bat_w = round(eff_bat_w + bat_add, 2)
+            eff_bp_w  = round(eff_bp_w  + bp_add,  2)
+            print(f"    [⚾ 난타전감지] 양팀 타선 min={min_bat:.1f}p ≥ {SLUGFEST_SM}p "
+                  f"→ SP {eff_sp_w+sp_cut:.0%}→{eff_sp_w:.0%} "
+                  f"BAT {eff_bat_w-bat_add:.0%}→{eff_bat_w:.0%} "
+                  f"BP {eff_bp_w-bp_add:.0%}→{eff_bp_w:.0%}")
+
+        # ── 타선 격차 민감도 보정 ─────────────────────────────────────
+        # KC@CLE 사례: KC bat 47.9 vs CLE bat 26.0 (21.9pt) → 모델이 CLE픽(SP/BP우세)
+        # 타선 격차가 크면 타선 가중치를 SP에서 이전해 상향
+        #
+        #   격차 18~21p: bat_w +0.07 (SP에서 차감) → eff_bat ~42%
+        #   격차 22p+ : bat_w +0.10 (SP에서 차감) → eff_bat ~45%
+        #   격차 15~17p: bat_w +0.03 (기존 유지)
+        # SP 하한 0.20 보장
         bat_gap = abs(away_bat_s - home_bat_s)
-        BAT_GAP_SM = 15.0   # 소폭 격차 임계값
-        BAT_GAP_LG = 20.0   # 대폭 격차 임계값
+        BAT_GAP_SM  = 15.0   # 소폭 격차
+        BAT_GAP_MD  = 18.0   # 중간 격차 (신규) — 압도 시작
+        BAT_GAP_LG  = 22.0   # 대폭 격차 (신규) — 완전 압도
         if bat_gap >= BAT_GAP_LG:
-            bat_boost = 0.05
+            bat_boost = 0.10   # eff_bat ~45%
+        elif bat_gap >= BAT_GAP_MD:
+            bat_boost = 0.07   # eff_bat ~42%
         elif bat_gap >= BAT_GAP_SM:
             bat_boost = 0.03
         else:
             bat_boost = 0.0
 
         if bat_boost > 0.0:
-            # SP 가중치에서 차감 (SP 하한 0.25 보장)
-            sp_transfer = min(bat_boost, max(0.0, eff_sp_w - 0.25))
+            # SP 가중치에서 차감 (SP 하한 0.20 보장 — 난타전 보정 후 낮을 수 있음)
+            sp_transfer = min(bat_boost, max(0.0, eff_sp_w - 0.20))
             eff_bat_w = round(eff_bat_w + sp_transfer, 2)
             eff_sp_w  = round(eff_sp_w  - sp_transfer, 2)
             stronger_bat = away_name if away_bat_s > home_bat_s else home_name
-            print(f"    [🏏 타선격차보정] 격차 {bat_gap:.1f}p ≥ {BAT_GAP_SM}p | "
+            tier = "압도" if bat_gap >= BAT_GAP_MD else "우위"
+            print(f"    [🏏 타선격차보정({tier})] 격차 {bat_gap:.1f}p | "
                   f"타선 가중치 {eff_bat_w-sp_transfer:.0%}→{eff_bat_w:.0%} "
                   f"(SP {eff_sp_w+sp_transfer:.0%}→{eff_sp_w:.0%}) "
                   f"| {stronger_bat} 타선 우위")
@@ -812,6 +876,25 @@ def run(game_date: Optional[str] = None) -> list:
                     away_win_pct = max(50.0, min(away_win_pct + bias, HARD_CAP))
                     home_win_pct = round(100.0 - away_win_pct, 1)
                 print(f"    [팀바이어스] {pick_team} 픽 {direction} {abs(bias):.0f}% (실측 보정)")
+
+        # ── 7b-2. 피처스 듀얼 캡 ──────────────────────────────────────
+        # LAD@DET 사례: Snell(hot,72pt) vs Montero(hot,48pt) → LAD 63% 과신 → DET 승
+        # 양팀 선발이 모두 hot 트렌드이고 상대 SP도 45pt+ 이면:
+        #   → 업셋 확률이 높아지므로 픽팀 승률을 63%로 상한 제한
+        # 조건: 양팀 SP trend == "hot" AND loser_sp_score >= 45
+        PITCHERS_DUEL_CAP       = 63.0
+        PITCHERS_DUEL_OPP_MIN   = 45.0   # 상대 SP 최소 점수
+        if away_trend == "hot" and home_trend == "hot":
+            if away_win_pct > home_win_pct and home_sp_s >= PITCHERS_DUEL_OPP_MIN:
+                if away_win_pct > PITCHERS_DUEL_CAP:
+                    away_win_pct = PITCHERS_DUEL_CAP
+                    home_win_pct = round(100.0 - away_win_pct, 1)
+                    print(f"    [⚾ 투수전캡] 양팀SP모두Hot, 상대SP {home_sp_s}pt≥{PITCHERS_DUEL_OPP_MIN} → {away_name} 승률 {PITCHERS_DUEL_CAP}%로 제한")
+            elif home_win_pct > away_win_pct and away_sp_s >= PITCHERS_DUEL_OPP_MIN:
+                if home_win_pct > PITCHERS_DUEL_CAP:
+                    home_win_pct = PITCHERS_DUEL_CAP
+                    away_win_pct = round(100.0 - home_win_pct, 1)
+                    print(f"    [⚾ 투수전캡] 양팀SP모두Hot, 상대SP {away_sp_s}pt≥{PITCHERS_DUEL_OPP_MIN} → {home_name} 승률 {PITCHERS_DUEL_CAP}%로 제한")
 
         # ── 7c. SP 과신 보정 (SP 점수 차이 +30 이상 시 불펜/타선 역전 가능성 반영) ──
         # 실측 데이터 기반: SP 차이가 압도적일수록 모델이 과신하는 경향 (56% 적중)
