@@ -19,8 +19,10 @@ MLB_API = "https://statsapi.mlb.com/api/v1"
 # ─── 경로 설정 ──────────────────────────────────────────────────
 SCRIPT_DIR  = Path(__file__).parent
 OUTPUT_DIR  = SCRIPT_DIR.parent / "output"
-WEB_REPO    = Path(sys.argv[1]) if len(sys.argv) > 1 else SCRIPT_DIR.parent.parent / "mlb-scorecard-web"
-OUT_FILE    = WEB_REPO / "public" / "season_results.json"
+
+# WEB_REPO / OUT_FILE 는 update() 함수 내에서 결정 (모듈 임포트 시 sys.argv 오염 방지)
+# 직접 실행(python src/update_season_results.py [path]) 시에만 sys.argv 사용
+_CLI_WEB_REPO = Path(sys.argv[1]) if (len(sys.argv) > 1 and not sys.argv[1].startswith("-")) else None
 
 # ─── 시즌 설정 ──────────────────────────────────────────────────
 SEASON_YEAR  = "2026"
@@ -38,9 +40,19 @@ def parse_js(path: Path):
     return json.loads(m.group(1))
 
 
-def load_season_results() -> dict:
-    if OUT_FILE.exists():
-        return json.loads(OUT_FILE.read_text(encoding="utf-8"))
+def _resolve_web_repo(web_repo_arg=None) -> Path:
+    """WEB_REPO 경로 결정 (우선순위: 인자 > CLI > 기본 경로)"""
+    if web_repo_arg is not None:
+        return Path(web_repo_arg)
+    if _CLI_WEB_REPO is not None:
+        return _CLI_WEB_REPO
+    return SCRIPT_DIR.parent.parent / "mlb-scorecard-web"
+
+
+def load_season_results(out_file: Path = None) -> dict:
+    f = out_file or (SCRIPT_DIR.parent.parent / "mlb-scorecard-web" / "public" / "season_results.json")
+    if f.exists():
+        return json.loads(f.read_text(encoding="utf-8"))
     return {
         "season": SEASON_YEAR,
         "start_date": SEASON_START,
@@ -120,9 +132,10 @@ def load_predictions_json(target_date: str = None) -> list:
     우선순위: output/predictions.json (pipeline 직후) → 웹 레포 predictions.json
     target_date 가 지정되면 해당 날짜 게임만 필터링.
     """
+    web_repo = _resolve_web_repo()
     candidates = [
-        OUTPUT_DIR / "predictions.json",           # pipeline이 방금 생성한 파일
-        WEB_REPO / "public" / "predictions.json",  # 웹 레포 (복원된 파일)
+        OUTPUT_DIR / "predictions.json",                    # pipeline이 방금 생성한 파일
+        web_repo / "public" / "predictions.json",           # 웹 레포 (복원된 파일)
     ]
     for pred_file in candidates:
         if not pred_file.exists():
@@ -184,8 +197,15 @@ def fetch_actual_results_from_api(game_date: str) -> dict:
     return results
 
 
-def update():
-    existing = load_season_results()
+def update(web_repo=None):
+    """
+    web_repo: 웹 레포 경로 (Path 또는 str). None이면 _resolve_web_repo()로 자동 결정.
+    main.py에서 import해서 호출 시 반드시 web_repo 인자를 전달해야 sys.argv 오염 방지.
+    """
+    WEB_REPO = _resolve_web_repo(web_repo)
+    OUT_FILE = WEB_REPO / "public" / "season_results.json"
+
+    existing = load_season_results(OUT_FILE)
 
     # 시즌 전환 감지
     if should_reset_season(existing):

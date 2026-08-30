@@ -69,8 +69,12 @@ def cmd_update_season_results():
     sys.path.insert(0, str(Path(__file__).parent / "src"))
     from update_season_results import update
     print("📈 Season Accuracy 업데이트 중...")
+    # ⚠️ 반드시 web_repo를 명시적으로 전달해야 함:
+    # main.py가 '--date 2026-08-29' 인자로 실행될 때 sys.argv[1]='--date'이므로
+    # update_season_results.py 모듈이 WEB_REPO=Path('--date')로 오염됨 → 버그
+    web_repo = Path(__file__).parent.parent / "mlb-scorecard-web"
     try:
-        update()
+        update(web_repo=web_repo)
         print("  ✅ season_results.json 업데이트 완료")
     except Exception as e:
         print(f"  ⚠️ season_results 업데이트 실패: {e}")
