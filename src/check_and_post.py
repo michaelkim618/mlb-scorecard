@@ -261,9 +261,23 @@ def check_and_post_predictions(game_date: str):
     lineup_refreshed = False
     for group in groups:
         key = group_key(group)
+        new_confirmations = [g for g in group if g["lineup_confirmed"]]
+
+        # ── 경기 시작 2시간 이내 미확정 경기 강제 재갱신 (safety net) ──
+        # push 충돌 등으로 이전 갱신이 실패했을 경우를 대비해,
+        # refreshed_groups 여부와 무관하게 경기 시작 전 2시간 이내이면 강제 재실행
+        FORCE_REFRESH_MINS = 120  # 경기 시작 2시간 전부터 강제 재갱신
+        unconfirmed_near_start = [
+            g for g in group
+            if not g["lineup_confirmed"]
+            and 0 <= (g["game_time_pst"] - now_pst).total_seconds() / 60 <= FORCE_REFRESH_MINS
+        ]
+        if unconfirmed_near_start and key in refreshed_groups:
+            print(f"\n⚠️ 그룹 {key} 경기 시작 {FORCE_REFRESH_MINS}분 이내 미확정 경기 있음 → 강제 재갱신 (safety net)")
+            refreshed_groups.remove(key)  # 강제로 재갱신 허용
+
         if key in refreshed_groups:
             continue  # 이미 라인업 갱신됨
-        new_confirmations = [g for g in group if g["lineup_confirmed"]]
         if new_confirmations:
             action = "포스팅 전" if key not in posted_groups else "포스팅 후"
             print(f"\n🔄 그룹 {key} 라인업 신규 확정 ({len(new_confirmations)}팀, {action}) → predictions.json 갱신")

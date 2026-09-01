@@ -282,9 +282,22 @@ jobs:
 
           git add public/news.json public/season_results.json public/predictions.json public/blog/ public/post_state_*.json || true
           git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }})"
-          # rebase 실패 시 재시도 (수동 커밋 충돌 방어)
-          for i in 1 2 3; do
-            git pull --rebase origin main && git push && break
-            echo "⚠️ push 실패 (시도 $i/3) — 5초 후 재시도"
-            sleep 5
-          done || echo "⚠️ 웹 레포 push 최종 실패 (다음 run에서 재시도됨)"
+          # rebase 실패 시 재시도 — 수동 커밋 충돌 방어 (재시도 5회, 간격 10초로 강화)
+          PUSHED=false
+          for i in 1 2 3 4 5; do
+            if git pull --rebase origin main && git push; then
+              PUSHED=true
+              break
+            fi
+            echo "⚠️ push 실패 (시도 $i/5) — 10초 후 재시도"
+            git rebase --abort 2>/dev/null || true
+            sleep 10
+          done
+          if [ "$PUSHED" = "false" ]; then
+            echo "⚠️ 웹 레포 push 최종 실패 — theirs 전략으로 강제 병합 시도"
+            git fetch origin
+            git reset --soft origin/main
+            git add public/news.json public/season_results.json public/predictions.json public/blog/ public/post_state_*.json || true
+            git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }}) [retry]"
+            git push || echo "⚠️ 최종 push도 실패 (다음 run에서 재시도됨)"
+          fi
