@@ -6,7 +6,17 @@
   - 불펜 최근 성적 (20%)
   - 팀 타선 최근 성적 (35%)
   - 상황적 요소 (15%)
+
+버전 이력:
+  v12 (2026-09-01) — BAT 극단값 캡, SP↔BAT+Kalshi역방향 자동 패스,
+                      라인업 미확정 패널티 -3%p, 3중 패스 조건 추가
+  v11 (2026-08-29) — 난타전 감지 로직, SP 바닥값 하향, 트위터 280자 수정
+  v10 (2026-08-27) — Season Accuracy / Blog 자동 업데이트 통합
+  v9  (2026-08-27) — SP↔BAT 충돌 감지 플래그, Value Bet 기준 정교화
+  v6  (2026-08-21) — 홈팀 박빙 보정, 부상자 핵심도 구분, Kalshi 괴리 보정
 """
+
+MODEL_VERSION = "v12"
 import json
 import sys
 from pathlib import Path
@@ -1533,6 +1543,7 @@ def run(game_date: Optional[str] = None) -> list:
             } if sp_bat_conflict else None,
             "low_confidence": low_confidence,
             "low_confidence_reason": f"SP 점수 차이 {sp_score_gap:.1f}pt (≤{SP_CONFIDENCE_THRESHOLD}pt)" if low_confidence else None,
+            "model_version": MODEL_VERSION,
         })
 
     # ── 저장 ──────────────────────────────────────────────────────────

@@ -1,5 +1,116 @@
 # MLB Scorecard 예측 모델 변경 이력
 
+---
+
+## 🆕 v12 — 2026-09-01 (신뢰도 4중 방어막)
+
+### 배경 / 분석 근거
+
+9/1 경기 결과 분석에서 46.7% 적중률 (7/15) 확인. 핵심 원인 두 가지:
+
+1. **SD@CIN 케이스**: 모델은 SD 61% 픽 (SP 우세) + BAT은 CIN 우세 (SP↔BAT 충돌) + Kalshi 시장은 CIN 56% 이미 반영 (edge -16%p) → 역방향 정보를 무시하고 베팅 → 대형 손실
+2. **CHC 타선 79pt 이상값**: BAT 스코어 스케일 이상 증폭으로 가중치 왜곡 → 모델 승률 오버슈팅
+
+**결론**: 라인업 미확정 + 시장 역방향 + SP↔BAT 충돌 케이스에서 모델이 과신하는 구조적 문제 확인 → 4가지 방어 룰 추가
+
+---
+
+### 변경 내용
+
+#### 1. BAT 극단값 캡 (BAT_EXTREME_CAP = 70.0pt)
+
+**변경 파일:** `src/scorecard_pipeline.py`
+
+| 항목 | 내용 |
+|------|------|
+| 문제 | CHC 타선 79pt → 스케일 이상으로 BAT 가중치 과대 반영 |
+| 수정 | batting_score() 호출 직후 70pt 상한 적용 |
+| 로그 | `[⚠️ 타선극단값캡] CHC bat=76.6pt → 70.0pt로 제한` |
+
+```python
+BAT_EXTREME_CAP = 70.0
+if away_bat_s > BAT_EXTREME_CAP:
+    away_bat_s = BAT_EXTREME_CAP
+if home_bat_s > BAT_EXTREME_CAP:
+    home_bat_s = BAT_EXTREME_CAP
+```
+
+---
+
+#### 2. SP↔BAT 충돌 + Kalshi 역방향 → 자동 패스
+
+**변경 파일:** `src/scorecard_pipeline.py`
+
+| 항목 | 내용 |
+|------|------|
+| 문제 | SP 우세팀 ≠ BAT 우세팀 + 시장이 모델 반대방향 예측 시 신뢰 불가 |
+| 조건 | `sp_bat_conflict=True` + 모델픽 ≠ Kalshi픽 + `|edge| ≥ 3%p` |
+| 결과 | value_bet → `⏭️ 패스 (SP↔BAT충돌+시장역방향)` |
+| 적용 케이스 | SD@CIN (edge -16%p, SP↔BAT 충돌) — 이 룰이 있었다면 패스 |
+
+```python
+SP_BAT_CONFLICT_KALSHI_THRESHOLD = -3.0
+if sp_bat_conflict and kalshi_home is not None:
+    model_picks_home = (home_win_pct >= away_win_pct)
+    kalshi_picks_home = (kalshi_home >= 50.0)
+    if model_picks_home != kalshi_picks_home and abs(kalshi_edge_val) >= 3.0:
+        vb["value_bet"] = f"⏭️ 패스 (SP↔BAT충돌+시장역방향 edge {kalshi_edge_val:+.1f}%p)"
+```
+
+---
+
+#### 3. 라인업 미확정 패널티 (-3%p)
+
+**변경 파일:** `src/scorecard_pipeline.py`
+
+| 항목 | 내용 |
+|------|------|
+| 문제 | bat_source="prev_day" (전날 라인업)로 60%+ 예측 → 실제 라인업과 다를 수 있음 |
+| 조건 | `bat_source != "lineup"` + 모델 최고 승률 ≥ 55% |
+| 수정 | 모델 승률 -3%p 하향 후 Value Bet 재계산 |
+| 로그 | `[📋 미확정패널티] 라인업 미확정(prev_day) → 승률 -3%p 하향` |
+
+---
+
+#### 4. 3중 패스 조건 (Triple Pass)
+
+**변경 파일:** `src/scorecard_pipeline.py`
+
+| 항목 | 내용 |
+|------|------|
+| 조건 | `low_confidence=True` + `양팀 SP 모두 Cold` + `lineup_confirmed=False` |
+| 결과 | `⏭️ 패스 (저신뢰+양팀SP cold+라인업미확정)` |
+| 의도 | 3가지 불확실성이 겹치는 경기는 사실상 예측 불가 수준으로 자동 스킵 |
+
+---
+
+#### 5. model_version 필드 추가
+
+모든 predictions.json 게임 엔트리에 `"model_version": "v12"` 필드 추가  
+→ 웹사이트 및 사후 분석 시 어느 버전 모델로 예측했는지 추적 가능
+
+---
+
+### 파일 변경 요약
+
+| 파일 | 변경 내용 |
+|------|-----------|
+| `src/scorecard_pipeline.py` | MODEL_VERSION = "v12" 상수, BAT 극단값 캡, SP↔BAT+Kalshi 패스, 미확정 패널티, 3중 패스, model_version 출력 |
+| `docs/model_changelog.md` | v12 섹션 추가 (이 문서) |
+
+---
+
+### 9/1 결과 요약 (v12 개선 전 마지막 v11 운영)
+
+| 지표 | 수치 |
+|------|------|
+| 전체 경기 | 15경기 |
+| 적중 | 7승 8패 |
+| 적중률 | 46.7% |
+| 주요 실패 | SD@CIN (SP↔BAT 충돌 + Kalshi 역방향 미반영) |
+
+---
+
 ## 2026-08-15 세션 요약
 
 ---
@@ -506,3 +617,122 @@ check_and_post.py 실행
 | `docs/model_changelog.md` | 30분 라인업 갱신 프로세스 기록 |
 | `docs/session_2026-08-27.md` | 동일 내용 세션 노트 추가 |
 | `docs/PROCESS_RULES.md` | 프로세스 규칙서 신규 생성 |
+
+---
+
+## 2026-08-29 — 난타전 감지 로직 & 트위터 운영 개선
+
+### 1. 난타전(Slugfest) 감지 로직 추가
+
+**변경 파일:** `src/scorecard_pipeline.py`
+
+#### 문제
+- 양팀 타선 점수가 모두 높은 경기(예: 10-8 난타전)에서 SP 가중치가 과도하게 반영됨
+- 8/28 분석: 라인업 미확정 경기 적중률 1/6 (16.7%) vs 확정 경기 8/9 (88.9%)
+
+#### 수정 내용
+`build_scorecard()` 호출 직전, SP/BAT/BP 가중치를 동적 조정하는 블록 추가:
+
+| 조건 | 트리거 | SP 감소 | BAT 증가 | BP 증가 |
+|------|--------|---------|---------|---------|
+| 강한 난타전 | `min(bat_s) ≥ 35p` | −7% | +5% | +2% |
+| 일반 난타전 | `min(bat_s) ≥ 30p` | −5% | +3% | +2% |
+| SP 최저 바닥 | 항상 | 20% (이전: 25%) | — | — |
+
+#### 8/28 테스트 결과
+- 15경기 중 7경기 난타전 감지
+- CIN @ CHC: SP 38%→30%, BAT 30%→36%, CHC 픽 61.4%→70.7%
+
+### 2. 라인업 미확정 경기 트위터 픽 제외
+
+**변경 파일:** `src/post_to_twitter.py`
+
+#### 문제
+- 라인업 미확정 경기(lineup_confirmed: False)가 트위터 Top Pick에 포함됨
+- 8/28 데이터: 미확정 경기 적중률 16.7% → 픽으로 내보내면 신뢰도 손상
+
+#### 수정 내용
+`get_top_picks()`에 3중 필터 추가:
+1. `lineup_confirmed: False` → 전면 제외 (primary)
+2. `sp_tbd.any: True` → 제외 (secondary)
+3. `bat_source in ("team_stats", "estimated")` → 제외 (tertiary, 이중 안전장치)
+
+제외된 경기 수는 트윗에 `⚠️ +N games excluded (lineup unconfirmed)`로 표시
+
+### 3. 트위터 280자 제한 초과 수정
+
+**변경 파일:** `src/post_to_twitter.py`
+
+| 트윗 종류 | 이전 | 이후 |
+|---------|------|------|
+| 예측 트윗 | 328자 (403 Forbidden) | ~239자 |
+| 결과 트윗 | 337자 (403 Forbidden) | ~259자 |
+
+### 4. git stash 충돌 영구 수정
+
+**변경 파일:** `main.py` → `cmd_deploy_web()`
+
+#### 문제
+GitHub Actions와 로컬 동시 실행 시 `git stash` 인덱스 잠금 충돌 → season_results.json JSON 손상
+
+#### 수정 내용
+`git stash` 완전 제거 → `git add` 먼저 수행 후 `pull --rebase` 방식으로 교체:
+```
+git add <specific files> → git pull --rebase → git commit → git push
+```
+
+### 파일 변경 요약
+| 파일 | 변경 내용 |
+|------|-----------|
+| `src/scorecard_pipeline.py` | 난타전 감지 블록 추가, SP 바닥값 0.25→0.20 |
+| `src/post_to_twitter.py` | 라인업 미확정 제외 필터, 280자 제한 수정, @MLB_Scorecard 키 적용 |
+| `main.py` | `cmd_deploy_web()` git stash 제거, rebase 방식 전환 |
+
+---
+
+## 2026-08-29 (2) — 투수 패널티 리스트 업데이트
+
+### 추가된 패널티 투수
+
+**파일:** `config/pitcher_penalties.json`
+
+| 항목 | 내용 |
+|------|------|
+| 투수 | **Eury Pérez** (MLB ID: 691587) |
+| 팀 | Miami Marlins |
+| 패널티 | **-8.0%** (해당 팀 승률에서 차감) |
+| 추가일 | 2026-08-29 |
+
+**패널티 사유:**
+- 8/28 경기 제구 붕괴 — 대량 볼넷으로 대량 실점
+- 시즌 BB% 10.7% (커리어 최악 수준)
+- HR/9 1.58 — 피홈런 취약
+- 구속·구위는 최상급(포심 98+ mph)이나 제구 불안 시 이닝 조기 종료 반복
+- 허벅지 내전근 부상 복귀 후 일관성 미확보
+
+### 패널티 적용 방식 (기존 시스템 동일)
+```
+config/pitcher_penalties.json → scorecard_pipeline.py 788번째줄 로드
+→ 해당 투수가 선발로 등판 시 해당 팀 win_pct에서 penalty 값 차감
+→ 명시적으로 해제(파일에서 제거)하기 전까지 영구 유지
+```
+
+### 현재 패널티 투수 전체 목록 (2026-08-29 기준)
+
+| 투수 | 팀 | 패널티 | 추가일 |
+|------|-----|--------|--------|
+| Martín Pérez | ATL | -8% | 2026-07-05 |
+| Carlos Carrasco | ATL | -10% | 2026-07-05 |
+| Huascar Brazobán | CWS | -8% | 2026-07-05 |
+| Sean Sullivan | COL | -10% | 2026-07-05 |
+| Ryan Weathers | NYY | -7% | 2026-07-05 |
+| Hurston Waldrep | ATL | -10% | 2026-07-08 |
+| Reynaldo López | ATL | -8% | 2026-07-21 |
+| Bryce Elder | ATL | -8% | 2026-08-11 |
+| Grant Holmes | ATL | -8% | 2026-08-15 |
+| **Eury Pérez** | **MIA** | **-8%** | **2026-08-29** |
+
+### Watch List
+| 투수 | 팀 | 플래그 | 추가일 |
+|------|-----|--------|--------|
+| Cristopher Sánchez | PHI | 우타자 많을 시 리스크 체크 | 2026-07-06 |
