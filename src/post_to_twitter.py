@@ -18,10 +18,10 @@ from pathlib import Path
 from requests_oauthlib import OAuth1
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
-API_KEY      = os.environ.get("TWITTER_API_KEY",      "dJVGGTTN7C6vmG2z7iqG0ruM7")
-API_SECRET   = os.environ.get("TWITTER_API_SECRET",   "OtBYpvgLcVG8mNp5p3ZiQqnb3Bv3lBYT8UaNoXlfcseIEQLU7g")
-ACCESS_TOKEN = os.environ.get("TWITTER_ACCESS_TOKEN", "2084157502879612928-iKOe2WRJG6fgd2wwNQ8KX6n82j5E4K")
-ACCESS_SECRET= os.environ.get("TWITTER_ACCESS_SECRET","CbdHpCOe8GNpRG1u9OMZV8zcGmj0BSGmG0PtsVucxCQ3P")
+API_KEY      = os.environ.get("TWITTER_API_KEY",      "5pAR1a4kJPkKdlu7tjTUj1AGW")
+API_SECRET   = os.environ.get("TWITTER_API_SECRET",   "PjpQryHOMhXfiODUPhX9NJamVBiZT6B5zCOkaZCGoJbKsBm6O6")
+ACCESS_TOKEN = os.environ.get("TWITTER_ACCESS_TOKEN", "2084157502879612928-a4vRmOkmPO2EpwtAtEuG6GiusvurMn")
+ACCESS_SECRET= os.environ.get("TWITTER_ACCESS_SECRET","P2kQ4dup1I0WRVJIsiLciIgYkv1eO07JD6zf7M7NyodYF")
 
 TWITTER_URL = "https://api.twitter.com/2/tweets"
 BASE_DIR    = Path(__file__).parent.parent
@@ -124,15 +124,20 @@ def get_top_picks(preds: list, n=5) -> list:
         if not wp:
             continue
 
+        # 라인업 미확정 경기 전면 제외 (lineup_confirmed: False)
+        if not g.get("lineup_confirmed", False):
+            skipped_tbd += 1
+            continue
+
         # SP TBD 경기는 Top Pick에서 제외 (신뢰도 낮음)
         sp_tbd = g.get("sp_tbd", {})
         if sp_tbd.get("any", False):
             skipped_tbd += 1
             continue
 
-        # bat_source=team_stats 경기는 Top Pick에서 제외 (라인업 없어 신뢰도 40%)
+        # bat_source=team_stats / 추정 경기 추가 제외 (이중 안전장치)
         bat_source = g.get("scorecard", {}).get("bat_source", "")
-        if bat_source == "team_stats":
+        if bat_source in ("team_stats", "estimated"):
             skipped_tbd += 1
             continue
 
@@ -173,13 +178,14 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
     rec = load_yesterday_record(post_date)
 
     if not top_picks:
-        yday = f"\n{yesterday_comment(rec)}\n" if rec else ""
+        yday = f"{yesterday_comment(rec)}\n" if rec else ""
         return (
             f"⚾ MLB Picks | {date_label}\n"
-            f"{yday}\n"
+            f"{yday}"
             f"Analyzing {total} games — lineup data loading.\n"
-            "Final picks dropped at game time.\n\n"
-            "#MLB #MLBPicks #Baseball"
+            "Final picks at game time.\n\n"
+            "mlb-scorecard.com\n"
+            "#MLB #MLBPicks"
         )
 
     skipped_tbd = top_picks[0].get("skipped_tbd", 0) if top_picks else 0
@@ -188,21 +194,21 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
     lines = []
     for i, p in enumerate(real_picks):
         star = "⭐" if i == 0 else "✅"
-        lines.append(f"{star} {p['vs']} → {p['pick']} {p['pct']:.0f}%")
+        lines.append(f"{star} {p['vs']} {p['pick']} {p['pct']:.0f}%")
     picks_block = "\n".join(lines)
 
-    tbd_note = f"⚠️ {skipped_tbd} games excluded (SP not yet announced)\n" if skipped_tbd > 0 else ""
-    yday_line = f"\n{yesterday_comment(rec)}\n" if rec else ""
+    tbd_note = f"⚠️ +{skipped_tbd} games excluded (lineup unconfirmed)\n" if skipped_tbd > 0 else ""
+    yday_line = f"{yesterday_comment(rec)}\n" if rec else ""
     top_tag = f"#{real_picks[0]['pick'].replace(' ', '')}" if real_picks else "#Baseball"
 
     tweet = (
         f"⚾ MLB Picks | {date_label}\n"
         f"{yday_line}\n"
-        f"Today's Top Picks:\n"
+        f"Top Picks ({total} games):\n"
         f"{picks_block}\n\n"
         f"{tbd_note}"
-        f"{total} games tracked. No cherry-picking, ever.\n\n"
-        f"📊 Full analysis & all picks → mlb-scorecard.com\n\n"
+        f"⚠️ Picks update as lineups confirm.\n"
+        f"Check latest before first pitch → mlb-scorecard.com\n"
         f"#MLB #MLBPicks {top_tag}"
     )
     return tweet
@@ -286,11 +292,10 @@ def build_results_tweet(post_date: str, preds: list) -> str:
         summary_block += f"\n... +{len(result_lines)-5} more"
 
     tweet = (
-        f"📊 MLB Results | {date_label}\n\n"
+        f"📊 MLB Results | {date_label}\n"
         f"{verdict}\n\n"
         f"{summary_block}\n\n"
-        f"All picks tracked from day 1. No edits. No excuses.\n\n"
-        f"📊 Full season record → mlb-scorecard.com\n\n"
+        f"mlb-scorecard.com\n"
         "#MLB #MLBPicks #Baseball"
     )
     return tweet

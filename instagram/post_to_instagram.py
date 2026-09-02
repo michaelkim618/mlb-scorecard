@@ -247,9 +247,10 @@ def build_prediction_caption(post_date: str, preds: list) -> str:
         "────────────────────\n"
         f"{season_line}\n"
         "────────────────────\n\n"
-        "Every pick posted before first pitch.\n"
-        "Every result tracked. No exceptions.\n\n"
+        "⚠️ Predictions update as lineups are confirmed.\n"
+        "Always check the latest picks before first pitch!\n"
         "🔗 mlb-scorecard.com\n\n"
+        "Every pick tracked. Every result logged. No exceptions.\n\n"
         f"#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball #{top_tag}"
     )
     return caption
