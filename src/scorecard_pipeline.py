@@ -278,6 +278,18 @@ def run(game_date: Optional[str] = None) -> list:
     print(f"총 {len(games)}경기 처리 시작\n")
     results = []
 
+    # ── 기존 예측 로드 (lineup_confirmed 경기 재계산 방지) ─────────────────
+    _existing_preds: dict = {}  # key: game_pk → 기존 예측 dict
+    _existing_output = OUTPUT_DIR / "predictions.json"
+    if _existing_output.exists():
+        try:
+            _ex_data = json.loads(_existing_output.read_text(encoding="utf-8"))
+            for _ex in _ex_data:
+                if _ex.get("date") == game_date and _ex.get("game_pk"):
+                    _existing_preds[_ex["game_pk"]] = _ex
+        except Exception:
+            pass
+
     for i, g in enumerate(games, 1):
         away_id         = g["away_id"]
         home_id         = g["home_id"]
@@ -289,6 +301,28 @@ def run(game_date: Optional[str] = None) -> list:
         home_pitcher    = g.get("home_pitcher", "TBD")
 
         print(f"[{i}/{len(games)}] {away_name} @ {home_name}")
+
+        # ── 🔒 라인업 확정 경기: 기존 예측 재사용 (승률 고정) ─────────────
+        _game_pk = g.get("gamePk")
+        _ex = _existing_preds.get(_game_pk) if _game_pk else None
+        if _ex and _ex.get("lineup_confirmed") and _ex.get("actual_score", {}).get("away") is None:
+            # 경기 결과는 아직 없고, 라인업은 이미 확정된 경기 → 예측 고정
+            # actual_score / actual_winner / model_correct 만 최신 스케줄 데이터로 갱신
+            _ex_copy = dict(_ex)
+            _ex_copy["actual_score"] = {
+                "away": g.get("actual_away"),
+                "home": g.get("actual_home"),
+            }
+            _actual_w = g.get("actual_away")
+            _actual_h = g.get("actual_home")
+            if _actual_w is not None and _actual_h is not None:
+                _aw = _ex_copy.get("away", "")
+                _hw = _ex_copy.get("home", "")
+                _ex_copy["actual_winner"] = _aw if _actual_w > _actual_h else (_hw if _actual_h > _actual_w else "무승부")
+                _ex_copy["model_correct"] = (_ex_copy["actual_winner"] == _ex_copy.get("model_winner"))
+            print(f"    [🔒 예측고정] 라인업 확정 완료 — 승률 {_ex_copy['win_prob']['away']}% vs {_ex_copy['win_prob']['home']}% 유지")
+            results.append(_ex_copy)
+            continue
 
         # ── 1. 선발투수 분석 ──────────────────────────────────────────
         away_is_tbd = (away_pitcher in ("TBD", "", None) or away_pitcher_id is None)
@@ -544,6 +578,17 @@ def run(game_date: Optional[str] = None) -> list:
 
         away_bat_s = batting_score(away_bat_detail)
         home_bat_s = batting_score(home_bat_detail)
+
+        # ── 3.4 타선 점수 극단값 캡 ──────────────────────────────────────
+        # BAT 70pt↑는 현실 반영 불가 수준 (시즌 최상위팀도 평균 60pt 미만)
+        # 이상 수치가 나오면 가중치 왜곡 → 예측 정확도 저하 (CHC 79pt 사례)
+        BAT_EXTREME_CAP = 70.0
+        if away_bat_s > BAT_EXTREME_CAP:
+            print(f"    [⚠️ 타선극단값캡] {away_name} bat={away_bat_s:.1f}pt → {BAT_EXTREME_CAP}pt로 제한 (스케일 이상)")
+            away_bat_s = BAT_EXTREME_CAP
+        if home_bat_s > BAT_EXTREME_CAP:
+            print(f"    [⚠️ 타선극단값캡] {home_name} bat={home_bat_s:.1f}pt → {BAT_EXTREME_CAP}pt로 제한 (스케일 이상)")
+            home_bat_s = BAT_EXTREME_CAP
 
         # ── 3.5 부상 페널티 (타자 주전 부상자 → 타선 점수 차감) ─────────
         inj_penalty = _safe(lambda: get_injury_penalty(away_id, home_id),
@@ -1101,6 +1146,14 @@ def run(game_date: Optional[str] = None) -> list:
             print(f"    [⚠️ SP↔BAT 충돌] SP우위={sp_favors}({sp_gap:+.1f}pt) ↔ "
                   f"BAT우위={bat_favors}({bat_gap:+.1f}pt) → 예측 신뢰도 주의")
 
+        # ── 🔍 예측 신뢰도 판정 ──────────────────────────────────────────
+        # SP 점수 차이 5pt 이하 → 선발 동급 → 예측 불확실
+        SP_CONFIDENCE_THRESHOLD = 5.0
+        sp_score_gap = abs(away_sp_s - home_sp_s)
+        low_confidence = (sp_score_gap <= SP_CONFIDENCE_THRESHOLD)
+        if low_confidence:
+            print(f"    [🔍 신뢰도낮음] SP 점수 차이 {sp_score_gap:.1f}pt ≤ {SP_CONFIDENCE_THRESHOLD}pt → 선발 동급, 예측 불확실")
+
         # ── 10. Kalshi + Value Bet ─────────────────────────────────────
         # 고위험 경기 판정: 양 팀 선발 ERA 모두 BOTH_SP_HIGH_ERA_THRESHOLD 이상
         both_sp_high_era = (away_sp_era >= BOTH_SP_HIGH_ERA_THRESHOLD and
@@ -1182,6 +1235,48 @@ def run(game_date: Optional[str] = None) -> list:
                 lineup_confirmed=lineup_confirmed,
             )
 
+            # ── 🚨 SP↔BAT 충돌 + Kalshi 역방향 → 자동 패스 ─────────────
+            # SD@CIN 사례: 모델 SD 60% 픽인데 Kalshi는 CIN 56% → 역방향 16%p 괴리
+            # SP가 한팀, BAT가 반대팀을 가리키면서 시장도 BAT팀 쪽이면 → 시장이 더 신뢰
+            SP_BAT_CONFLICT_KALSHI_THRESHOLD = -3.0  # Kalshi edge (모델홈-칼시홈) 방향 반대 허용 임계
+            if sp_bat_conflict and kalshi_home is not None:
+                # 모델 픽 방향과 Kalshi 픽 방향이 반대인지 확인
+                model_picks_home = (home_win_pct >= away_win_pct)
+                kalshi_picks_home = (kalshi_home >= 50.0)
+                kalshi_edge_val = vb.get("edge") or 0.0
+                if model_picks_home != kalshi_picks_home and abs(kalshi_edge_val) >= abs(SP_BAT_CONFLICT_KALSHI_THRESHOLD):
+                    print(f"    [🚨 SP↔BAT+Kalshi역방향] 충돌({sp_favors}↔{bat_favors}) + 시장 반대방향(edge {kalshi_edge_val:+.1f}%p) → 자동 패스")
+                    vb["value_bet"] = f"⏭️ 패스 (SP↔BAT충돌+시장역방향 edge {kalshi_edge_val:+.1f}%p — 신뢰불가)"
+
+            # ── 라인업 미확정 픽 승률 패널티 ──────────────────────────────
+            # 라인업 미확정 경기(prev_day/team_stats): 정보 불확실성 → 승률 -5%p 보정
+            # 단, 이미 low_confidence이거나 value_bet이 패스된 경기는 제외
+            UNCONFIRMED_LINEUP_PENALTY = 3.0  # 패널티 크기
+            UNCONFIRMED_MIN_PROB = 55.0        # 이 확률 이상일 때만 적용 (박빙은 건드리지 않음)
+            if not lineup_confirmed and bat_source != "lineup":
+                model_top = max(home_win_pct, away_win_pct)
+                if model_top >= UNCONFIRMED_MIN_PROB:
+                    if home_win_pct >= away_win_pct:
+                        home_win_pct = round(max(50.0, home_win_pct - UNCONFIRMED_LINEUP_PENALTY), 1)
+                        away_win_pct = round(100.0 - home_win_pct, 1)
+                    else:
+                        away_win_pct = round(max(50.0, away_win_pct - UNCONFIRMED_LINEUP_PENALTY), 1)
+                        home_win_pct = round(100.0 - away_win_pct, 1)
+                    print(f"    [📋 미확정패널티] 라인업 미확정({bat_source}) → 승률 -{UNCONFIRMED_LINEUP_PENALTY}%p 하향 ({model_top:.1f}%→{max(home_win_pct, away_win_pct):.1f}%)")
+                    # vb 재계산 (패널티 후 확률로)
+                    vb = evaluate(
+                        home_win_pct, kalshi_home, home_name, away_name,
+                        model_pct=max(home_win_pct, away_win_pct),
+                        lineup_confirmed=lineup_confirmed,
+                    )
+
+            # ── 3중 패스: 저신뢰 + 양팀 SP cold + 라인업 미확정 ─────────
+            # 세 가지 불확실성이 겹치면 예측 불가 수준 → 무조건 패스
+            if (low_confidence and both_cold and not lineup_confirmed
+                    and not vb.get("value_bet", "").startswith("⏭️")):
+                print(f"    [🔴 3중패스] 저신뢰+양팀Cold+라인업미확정 → 자동 패스")
+                vb["value_bet"] = "⏭️ 패스 (저신뢰+양팀SP cold+라인업미확정 — 예측불가 수준)"
+
             # ── Value Bet 선발 Hot/Cold 필터 ─────────────────────────
             if vb.get("value_bet", "").startswith("✅"):
                 model_winner_is_home = (home_win_pct >= away_win_pct)
@@ -1208,10 +1303,18 @@ def run(game_date: Optional[str] = None) -> list:
                     rest_tag = f"·장기휴식{loser_sp.get('rest_days')}일" if loser_rest_note == "extra_rest" else ""
                     print(f"    [🔥 VB Hot필터] 상대 선발 Hot{rest_tag} → edge {edge_val}%p < 임계값 {hot_opp_threshold}%p → Value Bet 격하")
                     vb["value_bet"] = f"⚠️ VB주의(상대선발Hot{rest_tag}·edge부족 {edge_val}%p<{hot_opp_threshold}%p)"
-                # Cold 선발 필터 (기존 유지)
+                # Cold 선발 필터: 예측팀 선발 Cold → VB 경고
                 elif winner_trend == "cold":
                     print(f"    [⚠️ VB Cold필터] 예측팀 선발 Cold 트렌드 → Value Bet 신뢰도 하락")
                     vb["value_bet"] = "⚠️ VB주의(선발Cold) — " + vb["value_bet"]
+
+                # ── 🚫 상대팀 선발 Cold → VB 완전 금지 ─────────────────
+                # Cold SP는 반등 가능성이 있어 모델이 과대평가하는 경향
+                # 예) HOU@NYM: NYM SP cold였으나 실제 HOU가 6-3 완승
+                if vb.get("value_bet", "").startswith("✅"):
+                    if loser_trend == "cold":
+                        print(f"    [🚫 VB Cold SP금지] 상대팀 선발 Cold → 반등 위험 → Value Bet 제외")
+                        vb["value_bet"] = f"⏭️ 패스 (상대선발Cold — 반등위험, 예측신뢰 낮음)"
 
             # ── 모델+시장 동시 동의 필터 (고신뢰 태그) ──────────────────
             # 조건: 모델 승률 ≥ 60% + |edge| ≤ 8%p (모델·시장 같은 방향) + 라인업 확정
@@ -1237,6 +1340,20 @@ def run(game_date: Optional[str] = None) -> list:
                     print(f"    [⭐ 고신뢰] 모델({_model_top:.0f}%)·시장(Kalshi {kalshi_home_prob:.0f}%) 동시 동의 → 고신뢰 예측")
             if "consensus" not in vb:
                 vb["consensus"] = False
+
+            # ── 🔍 low_confidence → Value Bet 자동 제외 ──────────────
+            # SP 점수 차이 ≤ 5pt 경기: 선발 동급 → 예측 신뢰도 낮음 → VB 제외
+            if low_confidence and vb.get("value_bet", "").startswith("✅"):
+                print(f"    [🔍 VB 신뢰도] SP 동급({sp_score_gap:.1f}pt) → Value Bet 자동 제외")
+                vb["value_bet"] = f"⏭️ 패스 (SP동급 {sp_score_gap:.1f}pt — 예측 불확실)"
+
+            # ── Kalshi 데이터 없는 경기 고신뢰 차단 ─────────────────────
+            # Kalshi 없으면 시장 검증 불가 → ⭐ 고신뢰·✅ Value Bet 등급 하향
+            # (MIA@KC 사례: Kalshi 0%로 시장 검증 없이 KC 62% 픽 → 역방향 결과)
+            if kalshi_home is None and not lineup_confirmed:
+                if vb.get("value_bet", "").startswith(("✅", "⭐")):
+                    print(f"    [📵 Kalshi없음+미확정] 시장 미검증 → 고신뢰 등급 하향")
+                    vb["value_bet"] = f"⚠️ 시장미검증 (Kalshi없음·라인업미확정) — 참고만"
 
         # ── 11. 부상 노트 ─────────────────────────────────────────────
         notes = _safe(lambda: get_injury_notes(away_id, home_id, away_name, home_name), "", "부상체크")
@@ -1391,7 +1508,7 @@ def run(game_date: Optional[str] = None) -> list:
                 "away": g.get("actual_away"),
                 "home": g.get("actual_home"),
             },
-            "lineup_confirmed": bat_source == "lineup",
+            "lineup_confirmed": bat_source == "lineup",  # ← 실제 MLB 라인업만 확정으로 인정
             "sp_tbd": {
                 "away": away_is_tbd,
                 "home": home_is_tbd,
@@ -1414,6 +1531,8 @@ def run(game_date: Optional[str] = None) -> list:
                 "sp_gap":     round(sp_gap,  1),
                 "bat_gap":    round(bat_gap, 1),
             } if sp_bat_conflict else None,
+            "low_confidence": low_confidence,
+            "low_confidence_reason": f"SP 점수 차이 {sp_score_gap:.1f}pt (≤{SP_CONFIDENCE_THRESHOLD}pt)" if low_confidence else None,
         })
 
     # ── 저장 ──────────────────────────────────────────────────────────
