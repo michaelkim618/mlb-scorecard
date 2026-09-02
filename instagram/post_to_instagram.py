@@ -92,27 +92,54 @@ def load_yesterday_record(today: str):
     return {"wins": wins, "losses": total - wins, "total": total, "pct": pct, "date": yesterday}
 
 
+def load_season_stats() -> dict:
+    """season_results.json에서 시즌 전체 + High Confidence 누적 성적 반환"""
+    web_candidates = [
+        BASE_DIR / "mlb-scorecard-web",
+        BASE_DIR.parent / "mlb-scorecard-web",
+        Path.home() / "Desktop" / "mlb-scorecard-web",
+    ]
+    for w in web_candidates:
+        f = w / "public" / "season_results.json"
+        if f.exists():
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                games = data.get("games", [])
+                total_w = sum(1 for g in games if g.get("correct"))
+                total   = len(games)
+                hc      = [g for g in games if g.get("high_conf")]
+                hc_w    = sum(1 for g in hc if g.get("correct"))
+                return {
+                    "total_w": total_w, "total": total,
+                    "total_pct": total_w / total * 100 if total else 0,
+                    "hc_w": hc_w, "hc": len(hc),
+                    "hc_pct": hc_w / len(hc) * 100 if hc else 0,
+                }
+            except Exception:
+                pass
+    return {}
+
+
 def yesterday_block(rec: dict) -> str:
     """전날 성적 블록 (인스타용 — 감성 코멘트 포함)"""
     pct = rec["pct"]
     w, l = rec["wins"], rec["losses"]
-    from datetime import datetime
     date_label = datetime.strptime(rec["date"], "%Y-%m-%d").strftime("%b %-d").upper()
 
     if pct >= 70:
-        comment = f"🔥 {w}W-{l}L ({pct:.0f}%) — AWESOME. The model was on fire!"
-        sub = "Nights like this remind us why we trust the data."
+        comment = f"🔥 {w}W-{l}L ({pct:.0f}%)"
+        sub = "The model was on fire. Nights like this are why we trust the data."
     elif pct >= 60:
-        comment = f"✅ {w}W-{l}L ({pct:.0f}%) — Solid night."
-        sub = "Consistent. Data-driven. No guessing."
+        comment = f"✅ {w}W-{l}L ({pct:.0f}%)"
+        sub = "Solid. Consistent. Data-driven."
     elif pct >= 50:
-        comment = f"📈 {w}W-{l}L ({pct:.0f}%) — Decent, but we can do better."
-        sub = "We track every pick honestly. No cherry-picking."
+        comment = f"📈 {w}W-{l}L ({pct:.0f}%)"
+        sub = "Not our best — but every result is tracked, no exceptions."
     else:
-        comment = f"😤 {w}W-{l}L ({pct:.0f}%) — Rough one yesterday."
-        sub = "It happens. Every pick tracked. We come back stronger."
+        comment = f"😤 {w}W-{l}L ({pct:.0f}%)"
+        sub = "Rough one. We own it and come back stronger tomorrow."
 
-    return f"📊 Yesterday ({date_label}): {comment}\n{sub}"
+    return f"Yesterday ({date_label}): {comment}\n{sub}"
 
 def get_top_picks(preds: list, n=5) -> list:
     picks = []
@@ -164,49 +191,73 @@ def format_date_label(post_date: str) -> str:
 
 def build_prediction_caption(post_date: str, preds: list) -> str:
     date_label = format_date_label(post_date)
-    top_picks = get_top_picks(preds, n=5)
-    total = len(preds)
-    rec = load_yesterday_record(post_date)
+    top_picks  = get_top_picks(preds, n=5)
+    total      = len(preds)
+    rec        = load_yesterday_record(post_date)
+    season     = load_season_stats()
 
-    yday = f"\n{yesterday_block(rec)}\n" if rec else ""
+    # ── 전날 성적 블록 ──
+    yday_block = f"📊 {yesterday_block(rec)}\n\n" if rec else ""
 
+    # ── 시즌 누적 성적 줄 ──
+    if season:
+        season_line = (
+            f"Season accuracy: {season['total_pct']:.1f}%  ({season['total_w']}W-{season['total']-season['total_w']}L)\n"
+            f"⭐ High Confidence: {season['hc_pct']:.1f}%  ({season['hc_w']}W-{season['hc']-season['hc_w']}L)"
+        )
+    else:
+        season_line = ""
+
+    # ── 픽 없음 ──
     if not top_picks:
-        return (
-            f"⚾ MLB Picks | {date_label}\n"
-            f"{yday}\n"
+        caption = (
+            f"⚾ MLB Scorecard | {date_label}\n\n"
+            f"{yday_block}"
             f"Analyzing {total} games today.\n"
-            "Lineup data still loading — picks dropped at game time.\n\n"
+            "Lineup data still loading — picks coming soon.\n\n"
+            f"{season_line}\n\n"
+            "Every pick posted before first pitch. Every result tracked.\n"
+            "No edits. No excuses. Just data.\n\n"
+            "🔗 mlb-scorecard.com\n\n"
             "#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball"
         )
+        return caption
 
+    real_picks  = [p for p in top_picks if "vs" in p]
     skipped_tbd = top_picks[0].get("skipped_tbd", 0) if top_picks else 0
-    real_picks = [p for p in top_picks if "vs" in p]
 
+    # ── 픽 리스트 ──
     lines = []
     for i, p in enumerate(real_picks):
-        star = "⭐" if i == 0 else "✅"
-        lines.append(f"{star} {p['vs']} → {p['pick']} {p['pct']:.0f}%")
+        star = "⭐" if i == 0 else "  ✅"
+        lines.append(f"{star} {p['vs']}  →  {p['pick']} {p['pct']:.0f}%")
     picks_block = "\n".join(lines)
 
-    tbd_note = f"\n⚠️ {skipped_tbd}개 경기 선발 미정 — 확정 후 신뢰도 상승 예정" if skipped_tbd > 0 else ""
-    top_tag = real_picks[0]['pick'] if real_picks else 'Baseball'
+    tbd_note   = f"\n⚠️ {skipped_tbd} games excluded (SP/lineup unconfirmed)" if skipped_tbd > 0 else ""
+    top_tag    = real_picks[0]['pick'].replace(" ", "") if real_picks else "Baseball"
+    confidence = "⭐ HIGH CONFIDENCE" if real_picks and real_picks[0]["pct"] >= 63 else "🎯 TODAY'S TOP PICK"
 
     caption = (
-        f"⚾ MLB Picks | {date_label}\n"
-        f"{yday}\n"
-        f"🎯 Today's Top Picks ({total} games):\n"
+        f"⚾ MLB Scorecard | {date_label}\n\n"
+        f"{yday_block}"
+        f"{confidence}: {real_picks[0]['vs']}  →  {real_picks[0]['pick']} {real_picks[0]['pct']:.0f}%\n\n"
+        f"Today's Full Card ({total} games analyzed):\n"
         f"{picks_block}"
         f"{tbd_note}\n\n"
-        "Every pick posted before first pitch. Every result tracked.\n"
-        "No edits. No excuses. Just data.\n\n"
-        f"🔗 Full scorecard → mlb-scorecard.com\n\n"
+        "────────────────────\n"
+        f"{season_line}\n"
+        "────────────────────\n\n"
+        "Every pick posted before first pitch.\n"
+        "Every result tracked. No exceptions.\n\n"
+        "🔗 mlb-scorecard.com\n\n"
         f"#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball #{top_tag}"
     )
     return caption
 
 def build_results_caption(post_date: str, preds: list) -> str:
     date_label = format_date_label(post_date)
-    finished = [g for g in preds if g.get("actual_winner")]
+    finished   = [g for g in preds if g.get("actual_winner")]
+    season     = load_season_stats()
 
     if not finished:
         return (
@@ -218,47 +269,58 @@ def build_results_caption(post_date: str, preds: list) -> str:
     correct = 0
     result_lines = []
     for g in finished:
-        wp = g.get("win_prob", {})
+        wp       = g.get("win_prob", {})
         away_pct = wp.get("away", 50)
         home_pct = wp.get("home", 50)
-        pick = abbr(g["home"]) if home_pct >= away_pct else abbr(g["away"])
-        actual = abbr(g["actual_winner"])
-        hit = pick == actual
+        pick     = abbr(g["home"]) if home_pct >= away_pct else abbr(g["away"])
+        actual   = abbr(g["actual_winner"])
+        hit      = pick == actual
         if hit:
             correct += 1
         mark = "✅" if hit else "❌"
-        result_lines.append(f"{mark} {abbr(g['away'])} @ {abbr(g['home'])} → {pick} ({actual})")
+        result_lines.append(f"{mark} {abbr(g['away'])} @ {abbr(g['home'])}  →  {pick}  (actual: {actual})")
 
     total = len(finished)
-    pct = correct / total * 100
+    pct   = correct / total * 100
 
-    # 성적 코멘트
+    # ── 성적 코멘트 ──
     if pct >= 70:
-        verdict = f"🔥 {correct}W-{total-correct}L ({pct:.0f}%) — AMAZING night!"
-        sub = "The data was firing on all cylinders. This is why we trust the model."
+        verdict = f"🔥 {correct}W-{total-correct}L  ({pct:.0f}%)"
+        sub = "The model was firing on all cylinders tonight."
     elif pct >= 60:
-        verdict = f"✅ {correct}W-{total-correct}L ({pct:.0f}%) — Solid night."
-        sub = "Consistent picks, honest tracking. No smoke and mirrors."
+        verdict = f"✅ {correct}W-{total-correct}L  ({pct:.0f}%)"
+        sub = "Solid night. Consistent picks, honest tracking."
     elif pct >= 50:
-        verdict = f"📈 {correct}W-{total-correct}L ({pct:.0f}%) — Not bad, but we want more."
-        sub = "We track everything publicly — good days and tough days alike."
+        verdict = f"📈 {correct}W-{total-correct}L  ({pct:.0f}%)"
+        sub = "Not our best — but every result is logged, no exceptions."
     else:
-        verdict = f"😤 {correct}W-{total-correct}L ({pct:.0f}%) — Rough one."
-        sub = "Baseball is humbling. We own it and come back stronger tomorrow."
+        verdict = f"😤 {correct}W-{total-correct}L  ({pct:.0f}%)"
+        sub = "Baseball humbles everyone. We own it. Back tomorrow."
 
-    top5 = result_lines[:5]
-    summary_block = "\n".join(top5)
-    if len(result_lines) > 5:
-        summary_block += f"\n+{len(result_lines)-5} more games"
+    summary_block = "\n".join(result_lines[:6])
+    if len(result_lines) > 6:
+        summary_block += f"\n  +{len(result_lines)-6} more games"
+
+    # ── 시즌 누적 ──
+    if season:
+        season_line = (
+            f"Season: {season['total_pct']:.1f}%  ({season['total_w']}W-{season['total']-season['total_w']}L)\n"
+            f"⭐ High Confidence: {season['hc_pct']:.1f}%  ({season['hc_w']}W-{season['hc']-season['hc_w']}L)"
+        )
+    else:
+        season_line = ""
 
     caption = (
         f"📊 MLB Results | {date_label}\n\n"
         f"{verdict}\n{sub}\n\n"
         f"{summary_block}\n\n"
-        "All picks posted before first pitch. All results tracked.\n"
-        "No edits. No excuses. Just data.\n\n"
-        f"🔗 Full history → mlb-scorecard.com\n\n"
-        "#MLB #MLBPicks #BaseballAnalytics #DataDriven #Baseball"
+        "────────────────────\n"
+        f"{season_line}\n"
+        "────────────────────\n\n"
+        "All picks posted before first pitch.\n"
+        "All results tracked. No edits. No excuses.\n\n"
+        "🔗 mlb-scorecard.com\n\n"
+        "#MLB #MLBResults #BaseballAnalytics #DataDriven #Baseball"
     )
     return caption
 

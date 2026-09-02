@@ -314,7 +314,7 @@ def check_and_post_predictions(game_date: str):
 
         run_pipeline(game_date)
         copy_predictions_to_web(game_date)
-        # run_instagram_post(game_date)  # 인스타그램 자동 포스팅 비활성화
+        run_instagram_post(game_date)   # 인스타그램 예측 포스팅
 
         # 트위터 예측 트윗: 하루 1번만 (첫 포스팅 그룹에만 전송)
         if not posted_groups:  # 오늘 첫 포스팅일 때만
@@ -378,8 +378,8 @@ def check_and_post_results(game_date: str):
             capture_output=True, text=True, cwd=str(BASE_DIR)
         )
 
-    # 결과 포스팅 (텍스트 스타일)
-    # run_instagram_post(game_date)  # 인스타그램 자동 포스팅 비활성화
+    # 결과 포스팅
+    run_instagram_post(game_date)           # 인스타그램 결과 포스팅
     run_twitter_post(game_date, post_type="results")
 
     # 상태 저장
