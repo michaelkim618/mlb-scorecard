@@ -149,6 +149,7 @@ def run(game_date: Optional[str] = None) -> list:
     SIT_W      = float(sc_cfg.get("sit_weight",        0.15))
     COORS_SP_PENALTY        = float(sc_cfg.get("coors_sp_penalty",        8.0))
     COORS_BAT_BONUS         = float(sc_cfg.get("coors_bat_bonus",         6.0))
+    COORS_HOME_BAT_EXTRA    = float(sc_cfg.get("coors_home_bat_extra",    5.0))   # 홈팀 추가 보정
     HARD_CAP_OPP_THRESHOLD  = float(sc_cfg.get("hard_cap_opp_threshold", 50.0))
     HARD_CAP_REDUCED        = float(sc_cfg.get("hard_cap_reduced",       60.0))
     # 동적 차별화 캡: 점수 차이(raw_score_gap)에 따라 캡을 단계적으로 적용
@@ -589,16 +590,23 @@ def run(game_date: Optional[str] = None) -> list:
         away_bat_s = batting_score(away_bat_detail)
         home_bat_s = batting_score(home_bat_detail)
 
-        # ── 3.4 타선 점수 극단값 캡 ──────────────────────────────────────
-        # BAT 70pt↑는 현실 반영 불가 수준 (시즌 최상위팀도 평균 60pt 미만)
-        # 이상 수치가 나오면 가중치 왜곡 → 예측 정확도 저하 (CHC 79pt 사례)
+        # ── 3.4 타선/불펜 점수 극단값 캡 ────────────────────────────────
+        # BAT 70pt↑ : 시즌 최상위팀도 평균 60pt 미만 → 이상값 가중치 왜곡 방지 (CHC 79pt 사례)
+        # BP  75pt↑ : 소수 구원투수 샘플로 ERA가 극단적으로 낮을 때 과신 방지 (TB 70pt → NYM에 패)
         BAT_EXTREME_CAP = 70.0
+        BP_EXTREME_CAP  = 75.0
         if away_bat_s > BAT_EXTREME_CAP:
-            print(f"    [⚠️ 타선극단값캡] {away_name} bat={away_bat_s:.1f}pt → {BAT_EXTREME_CAP}pt로 제한 (스케일 이상)")
+            print(f"    [⚠️ 타선극단값캡] {away_name} bat={away_bat_s:.1f}pt → {BAT_EXTREME_CAP}pt로 제한")
             away_bat_s = BAT_EXTREME_CAP
         if home_bat_s > BAT_EXTREME_CAP:
-            print(f"    [⚠️ 타선극단값캡] {home_name} bat={home_bat_s:.1f}pt → {BAT_EXTREME_CAP}pt로 제한 (스케일 이상)")
+            print(f"    [⚠️ 타선극단값캡] {home_name} bat={home_bat_s:.1f}pt → {BAT_EXTREME_CAP}pt로 제한")
             home_bat_s = BAT_EXTREME_CAP
+        if away_bp_s > BP_EXTREME_CAP:
+            print(f"    [⚠️ 불펜극단값캡] {away_name} bp={away_bp_s:.1f}pt → {BP_EXTREME_CAP}pt로 제한 (소샘플 과신 방지)")
+            away_bp_s = BP_EXTREME_CAP
+        if home_bp_s > BP_EXTREME_CAP:
+            print(f"    [⚠️ 불펜극단값캡] {home_name} bp={home_bp_s:.1f}pt → {BP_EXTREME_CAP}pt로 제한 (소샘플 과신 방지)")
+            home_bp_s = BP_EXTREME_CAP
 
         # ── 3.5 부상 페널티 (타자 주전 부상자 → 타선 점수 차감) ─────────
         inj_penalty = _safe(lambda: get_injury_penalty(away_id, home_id),
@@ -710,8 +718,8 @@ def run(game_date: Optional[str] = None) -> list:
             away_sp_s  = max(0.0, away_sp_s  - COORS_SP_PENALTY)
             home_sp_s  = max(0.0, home_sp_s  - COORS_SP_PENALTY)
             away_bat_s = min(100.0, away_bat_s + COORS_BAT_BONUS)
-            home_bat_s = min(100.0, home_bat_s + COORS_BAT_BONUS)
-            print(f"    [쿠어스] COL 홈경기: SP -{COORS_SP_PENALTY}pt, 타선 +{COORS_BAT_BONUS}pt 적용")
+            home_bat_s = min(100.0, home_bat_s + COORS_BAT_BONUS + COORS_HOME_BAT_EXTRA)
+            print(f"    [쿠어스] COL 홈경기: SP -{COORS_SP_PENALTY}pt | 원정타선 +{COORS_BAT_BONUS}pt | 홈타선 +{COORS_BAT_BONUS+COORS_HOME_BAT_EXTRA}pt (홈이점 추가)")
 
         # ── 4.7 선발 ERA 위험 플래그 보정 ────────────────────────────
         # 선발 ERA 5.0↑ + 상대 타선 60점↑ → 상대 타선 추가 보너스 (대량 실점 위험)
@@ -1245,18 +1253,27 @@ def run(game_date: Optional[str] = None) -> list:
                 lineup_confirmed=lineup_confirmed,
             )
 
-            # ── 🚨 SP↔BAT 충돌 + Kalshi 역방향 → 자동 패스 ─────────────
-            # SD@CIN 사례: 모델 SD 60% 픽인데 Kalshi는 CIN 56% → 역방향 16%p 괴리
-            # SP가 한팀, BAT가 반대팀을 가리키면서 시장도 BAT팀 쪽이면 → 시장이 더 신뢰
-            SP_BAT_CONFLICT_KALSHI_THRESHOLD = -3.0  # Kalshi edge (모델홈-칼시홈) 방향 반대 허용 임계
-            if sp_bat_conflict and kalshi_home is not None:
-                # 모델 픽 방향과 Kalshi 픽 방향이 반대인지 확인
-                model_picks_home = (home_win_pct >= away_win_pct)
-                kalshi_picks_home = (kalshi_home >= 50.0)
-                kalshi_edge_val = vb.get("edge") or 0.0
-                if model_picks_home != kalshi_picks_home and abs(kalshi_edge_val) >= abs(SP_BAT_CONFLICT_KALSHI_THRESHOLD):
-                    print(f"    [🚨 SP↔BAT+Kalshi역방향] 충돌({sp_favors}↔{bat_favors}) + 시장 반대방향(edge {kalshi_edge_val:+.1f}%p) → 자동 패스")
-                    vb["value_bet"] = f"⏭️ 패스 (SP↔BAT충돌+시장역방향 edge {kalshi_edge_val:+.1f}%p — 신뢰불가)"
+            # ── 🚨 SP↔BAT 충돌 처리 ──────────────────────────────────────
+            # Case A: Kalshi 있음 + 역방향 → 자동 패스 (기존)
+            # Case B: Kalshi 없음          → 신뢰도 낮음 경고 (9/2 STL@LAD, DET@MIN 사례)
+            SP_BAT_CONFLICT_KALSHI_THRESHOLD = -3.0
+            SP_BAT_CONFLICT_NO_MARKET_SP_MIN = 25.0  # SP 차이 이 이상이면 충돌 심각으로 판단
+            if sp_bat_conflict:
+                if kalshi_home is not None:
+                    # Case A: 시장 역방향 확인
+                    model_picks_home  = (home_win_pct >= away_win_pct)
+                    kalshi_picks_home = (kalshi_home >= 50.0)
+                    kalshi_edge_val   = vb.get("edge") or 0.0
+                    if model_picks_home != kalshi_picks_home and abs(kalshi_edge_val) >= abs(SP_BAT_CONFLICT_KALSHI_THRESHOLD):
+                        print(f"    [🚨 SP↔BAT+Kalshi역방향] 충돌({sp_favors}↔{bat_favors}) + 시장 반대방향(edge {kalshi_edge_val:+.1f}%p) → 자동 패스")
+                        vb["value_bet"] = f"⏭️ 패스 (SP↔BAT충돌+시장역방향 edge {kalshi_edge_val:+.1f}%p — 신뢰불가)"
+                else:
+                    # Case B: 칼시 없음 + SP↔BAT 충돌 → 심각도에 따라 패스 or 경고
+                    sp_conflict_gap = abs(sp_gap)
+                    bat_conflict_gap = abs(bat_gap)
+                    if sp_conflict_gap >= SP_BAT_CONFLICT_NO_MARKET_SP_MIN and not vb.get("value_bet", "").startswith("⏭️"):
+                        print(f"    [⚠️ SP↔BAT충돌+시장없음] SP차이 {sp_conflict_gap:.1f}pt, BAT차이 {bat_conflict_gap:.1f}pt → 시장 미검증으로 자동 패스")
+                        vb["value_bet"] = f"⏭️ 패스 (SP↔BAT충돌+Kalshi없음 — 시장 미검증, 신뢰불가)"
 
             # ── 라인업 미확정 픽 승률 패널티 ──────────────────────────────
             # 라인업 미확정 경기(prev_day/team_stats): 정보 불확실성 → 승률 -5%p 보정
