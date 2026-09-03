@@ -8,6 +8,7 @@
   - 상황적 요소 (15%)
 
 버전 이력:
+  v13 (2026-09-02) — 쿠어스 홈팀 추가 보정, BP 극단값 캡, SP↔BAT충돌+Kalshi없음 자동 패스
   v12 (2026-09-01) — BAT 극단값 캡, SP↔BAT+Kalshi역방향 자동 패스,
                       라인업 미확정 패널티 -3%p, 3중 패스 조건 추가
   v11 (2026-08-29) — 난타전 감지 로직, SP 바닥값 하향, 트위터 280자 수정
@@ -16,7 +17,7 @@
   v6  (2026-08-21) — 홈팀 박빙 보정, 부상자 핵심도 구분, Kalshi 괴리 보정
 """
 
-MODEL_VERSION = "v12"
+MODEL_VERSION = "v13"
 import json
 import sys
 from pathlib import Path
