@@ -85,7 +85,15 @@ def get_today_games(game_date: str) -> list:
 
             # 라인업 확정 여부
             lineups = g.get("lineups", {})
-            lineup_confirmed = bool(
+            detailed_state = g.get("status", {}).get("detailedState", "")
+            abstract_state = g.get("status", {}).get("abstractGameState", "Preview")
+
+            # Schedule API hydrate=lineups 버그 대응:
+            # Live/Warmup/Final 상태이면 라인업이 이미 확정된 것으로 간주
+            game_started = abstract_state in ("Live", "Final") or \
+                           detailed_state in ("Warmup", "Pre-Game", "In Progress", "Final")
+
+            lineup_confirmed = game_started or bool(
                 lineups.get("awayPlayers") and lineups.get("homePlayers")
             )
 
@@ -96,7 +104,7 @@ def get_today_games(game_date: str) -> list:
                 "game_time_pst":     game_dt_pst,
                 "game_time_str":     game_dt_pst.strftime("%I:%M %p PST"),
                 "lineup_confirmed":  lineup_confirmed,
-                "status":            g.get("status", {}).get("abstractGameState", "Preview"),
+                "status":            abstract_state,
             })
 
     # 시작 시간순 정렬
