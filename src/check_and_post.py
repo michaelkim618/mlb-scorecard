@@ -256,35 +256,66 @@ def check_and_post_predictions(game_date: str):
         first_time = group[0]["game_time_str"]
         print(f"   그룹 {i+1}: {len(group)}경기  첫 경기 {first_time}  key={key}")
 
-    # ── 라인업 갱신 체크 (포스팅 여부와 무관하게, 아직 미갱신 그룹 중 새로 확정된 경우) ──
+    # ── 라인업 갱신 & 예측 고정 체크 ──────────────────────────────────────────
+    # 흐름:
+    #   1) 라인업 일부 확정  → 파이프라인 재실행 (refreshed)
+    #   2) 라인업 전체 확정  → 파이프라인 재실행 후 예측 고정 (frozen)
+    #   3) frozen 그룹       → 어떤 경우에도 예측 변경 불가
+    #   4) 경기 시작 60분 이내 미확정 잔류 시 → 1회 강제 재실행 후 고정
     refreshed_groups = state.get("lineup_refreshed", [])
+    frozen_groups    = state.get("predictions_frozen", [])
     lineup_refreshed = False
+
+    FORCE_REFRESH_MINS = 60  # 경기 시작 60분 전 이내 미확정 → 강제 1회 재갱신
+
     for group in groups:
         key = group_key(group)
-        new_confirmations = [g for g in group if g["lineup_confirmed"]]
 
-        # ── 경기 시작 2시간 이내 미확정 경기 강제 재갱신 (safety net) ──
-        # push 충돌 등으로 이전 갱신이 실패했을 경우를 대비해,
-        # refreshed_groups 여부와 무관하게 경기 시작 전 2시간 이내이면 강제 재실행
-        FORCE_REFRESH_MINS = 120  # 경기 시작 2시간 전부터 강제 재갱신
+        # ① 이미 고정된 그룹 → 완전 스킵
+        if key in frozen_groups:
+            print(f"   🔒 그룹 {key} 예측 고정됨 — 변경 불가")
+            continue
+
+        all_confirmed  = all(g["lineup_confirmed"] for g in group)
+        any_confirmed  = any(g["lineup_confirmed"] for g in group)
+
+        # ② 경기 시작 60분 이내 미확정 경기 → refreshed여도 강제 1회 재갱신 허용
         unconfirmed_near_start = [
             g for g in group
             if not g["lineup_confirmed"]
             and 0 <= (g["game_time_pst"] - now_pst).total_seconds() / 60 <= FORCE_REFRESH_MINS
         ]
         if unconfirmed_near_start and key in refreshed_groups:
-            print(f"\n⚠️ 그룹 {key} 경기 시작 {FORCE_REFRESH_MINS}분 이내 미확정 경기 있음 → 강제 재갱신 (safety net)")
-            refreshed_groups.remove(key)  # 강제로 재갱신 허용
+            print(f"\n⚠️ 그룹 {key}: 경기 {FORCE_REFRESH_MINS}분 이내 미확정 {len(unconfirmed_near_start)}경기 → 강제 재갱신 후 고정")
+            refreshed_groups.remove(key)  # 재갱신 허용 (이후 바로 고정)
 
+        # ③ 이미 갱신 완료 → 고정 여부만 판단
         if key in refreshed_groups:
-            continue  # 이미 라인업 갱신됨
-        if new_confirmations:
+            if all_confirmed:
+                # 전 경기 라인업 확정됐으면 이제 고정
+                frozen_groups.append(key)
+                state["predictions_frozen"] = frozen_groups
+                save_state(game_date, state)
+                print(f"   🔒 그룹 {key} 전 경기 라인업 확정 → 예측 고정 완료")
+            continue
+
+        # ④ 라인업이 하나라도 확정됐으면 파이프라인 재실행
+        if any_confirmed:
             action = "포스팅 전" if key not in posted_groups else "포스팅 후"
-            print(f"\n🔄 그룹 {key} 라인업 신규 확정 ({len(new_confirmations)}팀, {action}) → predictions.json 갱신")
+            confirmed_n = sum(1 for g in group if g["lineup_confirmed"])
+            total_n = len(group)
+            print(f"\n🔄 그룹 {key} 라인업 확정 ({confirmed_n}/{total_n}, {action}) → predictions.json 갱신")
             run_pipeline(game_date)
             copy_predictions_to_web(game_date)
             refreshed_groups.append(key)
             state["lineup_refreshed"] = refreshed_groups
+
+            if all_confirmed:
+                # 전체 확정이면 즉시 고정
+                frozen_groups.append(key)
+                state["predictions_frozen"] = frozen_groups
+                print(f"   🔒 그룹 {key} 전 경기 라인업 확정 → 즉시 예측 고정")
+
             save_state(game_date, state)
             lineup_refreshed = True
             break  # 한 번에 하나씩
@@ -312,8 +343,17 @@ def check_and_post_predictions(game_date: str):
         total_count = len(group)
         print(f"\n🚀 포스팅 실행! 그룹 {key} | #{post_num}차 | 라인업 확정: {confirmed_count}/{total_count}")
 
-        run_pipeline(game_date)
-        copy_predictions_to_web(game_date)
+        # 이미 고정된 그룹은 파이프라인 재실행 없이 포스팅만 (예측값 보존)
+        if key not in frozen_groups:
+            run_pipeline(game_date)
+            copy_predictions_to_web(game_date)
+            # 포스팅 시점에 전체 확정 → 고정
+            if all(g["lineup_confirmed"] for g in group):
+                frozen_groups.append(key)
+                state["predictions_frozen"] = frozen_groups
+                print(f"   🔒 포스팅 완료 시점에 예측 고정")
+        else:
+            print(f"   🔒 예측 고정 상태 — 파이프라인 재실행 없이 현재 예측값으로 포스팅")
         run_instagram_post(game_date)   # 인스타그램 예측 포스팅
 
         # 트위터 예측 트윗: 하루 1번만 (첫 포스팅 그룹에만 전송)
