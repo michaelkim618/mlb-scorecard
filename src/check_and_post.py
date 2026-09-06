@@ -216,6 +216,93 @@ def copy_predictions_to_web(game_date: str):
     return False
 
 
+# ── frozen 예측값 저장/복원 ────────────────────────────────────────────────────
+
+FROZEN_FIELDS = [
+    "win_prob", "model_winner", "value_bet", "edge",
+    "sp_bat_conflict", "sp_bat_conflict_detail",
+    "low_confidence", "low_confidence_reason", "extreme_edge",
+]
+
+def save_frozen_predictions(game_date: str, state: dict, frozen_group_key: str, group_games: list):
+    """
+    그룹이 frozen될 때 해당 그룹 경기들의 핵심 예측값을 state에 스냅샷 저장.
+    이후 다른 그룹 파이프라인 실행 시 이 값으로 복원한다.
+    """
+    src = OUTPUT_DIR / "predictions.json"
+    if not src.exists():
+        return
+
+    try:
+        preds = json.loads(src.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if isinstance(preds, dict):
+        preds = preds.get("games", [])
+
+    # game_pk → prediction 맵
+    pred_by_pk = {str(g.get("game_pk", "")): g for g in preds}
+
+    frozen_preds = state.get("frozen_predictions", {})
+    if frozen_group_key in frozen_preds:
+        return  # 이미 저장됨
+
+    saved = []
+    for game in group_games:
+        pk = str(game.get("gamePk", ""))
+        if pk and pk in pred_by_pk:
+            p = pred_by_pk[pk]
+            snapshot = {"game_pk": pk}
+            for f in FROZEN_FIELDS:
+                snapshot[f] = p.get(f)
+            saved.append(snapshot)
+            print(f"   💾 frozen 스냅샷 저장: {game.get('away')} @ {game.get('home')} → {p.get('win_prob')}")
+
+    if saved:
+        frozen_preds[frozen_group_key] = saved
+        state["frozen_predictions"] = frozen_preds
+        print(f"   ✅ 그룹 {frozen_group_key} 예측값 {len(saved)}경기 스냅샷 완료")
+
+
+def apply_frozen_predictions(game_date: str, state: dict):
+    """
+    파이프라인 재실행 후, frozen 그룹의 예측값을 저장된 스냅샷으로 복원.
+    다른 그룹 처리 중 frozen 그룹 데이터가 덮어씌워지는 것을 방지한다.
+    """
+    frozen_preds = state.get("frozen_predictions", {})
+    if not frozen_preds:
+        return
+
+    src = OUTPUT_DIR / "predictions.json"
+    if not src.exists():
+        return
+
+    try:
+        preds = json.loads(src.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if isinstance(preds, dict):
+        preds = preds.get("games", [])
+
+    pred_by_pk = {str(g.get("game_pk", "")): g for g in preds}
+
+    restored = 0
+    for key, saved_games in frozen_preds.items():
+        for saved in saved_games:
+            pk = str(saved.get("game_pk", ""))
+            if pk and pk in pred_by_pk:
+                pred = pred_by_pk[pk]
+                for f in FROZEN_FIELDS:
+                    if f in saved:
+                        pred[f] = saved[f]
+                restored += 1
+
+    if restored:
+        src.write_text(json.dumps(preds, indent=2, ensure_ascii=False), encoding="utf-8")
+        copy_predictions_to_web(game_date)
+        print(f"   🔒 frozen 예측값 복원 완료 ({restored}경기) — 이미 고정된 그룹 보호")
+
+
 def needs_lineup_refresh(game_date: str, games: list) -> bool:
     """포스팅된 그룹 중 라인업이 새로 확정된 경기가 있는지 체크"""
     state = load_state(game_date)
@@ -303,6 +390,8 @@ def check_and_post_predictions(game_date: str):
                 # 전 경기 라인업 확정됐으면 이제 고정
                 frozen_groups.append(key)
                 state["predictions_frozen"] = frozen_groups
+                # ★ frozen 시점의 예측값 스냅샷 저장
+                save_frozen_predictions(game_date, state, key, group)
                 save_state(game_date, state)
                 print(f"   🔒 그룹 {key} 전 경기 라인업 확정 → 예측 고정 완료")
             continue
@@ -314,14 +403,17 @@ def check_and_post_predictions(game_date: str):
             total_n = len(group)
             print(f"\n🔄 그룹 {key} 라인업 확정 ({confirmed_n}/{total_n}, {action}) → predictions.json 갱신")
             run_pipeline(game_date)
+            # ★ 파이프라인 실행 후 frozen 그룹 예측값 즉시 복원 (덮어쓰기 방지)
+            apply_frozen_predictions(game_date, state)
             copy_predictions_to_web(game_date)
             refreshed_groups.append(key)
             state["lineup_refreshed"] = refreshed_groups
 
             if all_confirmed:
-                # 전체 확정이면 즉시 고정
+                # 전체 확정이면 즉시 고정 + 스냅샷 저장
                 frozen_groups.append(key)
                 state["predictions_frozen"] = frozen_groups
+                save_frozen_predictions(game_date, state, key, group)
                 print(f"   🔒 그룹 {key} 전 경기 라인업 확정 → 즉시 예측 고정")
 
             save_state(game_date, state)
@@ -354,11 +446,14 @@ def check_and_post_predictions(game_date: str):
         # 이미 고정된 그룹은 파이프라인 재실행 없이 포스팅만 (예측값 보존)
         if key not in frozen_groups:
             run_pipeline(game_date)
+            # ★ 파이프라인 실행 후 frozen 그룹 예측값 즉시 복원 (덮어쓰기 방지)
+            apply_frozen_predictions(game_date, state)
             copy_predictions_to_web(game_date)
-            # 포스팅 시점에 전체 확정 → 고정
+            # 포스팅 시점에 전체 확정 → 고정 + 스냅샷 저장
             if all(g["lineup_confirmed"] for g in group):
                 frozen_groups.append(key)
                 state["predictions_frozen"] = frozen_groups
+                save_frozen_predictions(game_date, state, key, group)
                 print(f"   🔒 포스팅 완료 시점에 예측 고정")
         else:
             print(f"   🔒 예측 고정 상태 — 파이프라인 재실행 없이 현재 예측값으로 포스팅")
