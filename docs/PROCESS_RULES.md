@@ -1,6 +1,7 @@
 # MLB Scorecard 프로세스 규칙서
 
 > 최초 작성: 2026-08-27  
+> 최종 수정: 2026-09-05  
 > 목적: 매일 자동 실행 파이프라인의 동작 원리와 문제 발생 시 대응 규칙 정리
 
 ---
@@ -67,15 +68,71 @@ GameCard.jsx가 읽는 `predictions.json` 필드:
 
 ---
 
-## 4. 라인업 갱신 프로세스 규칙
+## 4. 라인업 갱신 & 예측 고정 프로세스 규칙
 
-### 자동 갱신 조건
-- `check_and_post.py`가 MLB API에서 라인업 확정 감지 시 자동으로 `scorecard_pipeline.py` 재실행
-- 재실행 조건: 해당 경기 그룹의 `lineup_refreshed` 상태가 아직 없을 때
+> ⚠️ 2026-09-05 개선: 예측 고정(frozen) 로직 추가 + MLB API 버그 대응
+
+### 라인업 확정 감지 방식 (2가지 조건)
+
+```python
+# check_and_post.py → get_today_games()
+# 조건 1: MLB Schedule API lineups hydration 성공
+lineup_confirmed = bool(lineups.get("awayPlayers") and lineups.get("homePlayers"))
+
+# 조건 2 (버그 대응): Warmup / Live / Final 상태이면 무조건 confirmed
+# → MLB Schedule API가 Warmup 상태에서도 선수 이름을 빈값으로 리턴하는 버그 존재
+game_started = abstract_state in ("Live", "Final") or \
+               detailed_state in ("Warmup", "Pre-Game", "In Progress", "Final")
+lineup_confirmed = game_started or lineup_confirmed
+```
+
+**MLB Schedule API 알려진 버그:**
+- `hydrate=lineups`로 호출해도 경기 Warmup/Live 상태에서 선수 이름이 빈값(`""`)으로 리턴
+- 해결: `detailedState`가 Warmup 이상이면 confirmed 강제 처리
+
+---
+
+### 예측 고정(Frozen) 2단계 프로세스
+
+```
+[단계 1] 라인업 일부 확정 → refreshed
+  - 조건: group 내 1개 이상 lineup_confirmed
+  - 동작: scorecard_pipeline.py 재실행 → predictions.json 갱신
+  - 상태: state["lineup_refreshed"].append(group_key)
+
+[단계 2] 라인업 전체 확정 → frozen (예측 고정)
+  - 조건: group 내 모든 경기 lineup_confirmed
+  - 동작: 파이프라인 재실행 후 즉시 고정
+  - 상태: state["predictions_frozen"].append(group_key)
+
+[frozen 이후]
+  - 어떤 경우에도 해당 그룹 예측값 변경 불가
+  - 포스팅 시에도 파이프라인 재실행 없이 현재 예측값 그대로 사용
+```
+
+**Safety Net (경기 60분 전 미확정 잔류 시):**
+- refreshed 상태여도 경기 시작 60분 이내 미확정 경기 있으면 강제 1회 재갱신
+- 재갱신 후 즉시 frozen 처리 (이후 변경 불가)
+
+```
+(이전) FORCE_REFRESH_MINS = 120분, 반복 허용
+(이후) FORCE_REFRESH_MINS = 60분,  1회 후 즉시 고정
+```
+
+### post_state 파일의 상태 구조
+
+```json
+{
+  "predictions": ["13:10", "16:05"],       // 포스팅 완료된 그룹 시간
+  "lineup_refreshed": ["13:10", "16:05"],  // 라인업 갱신 완료된 그룹
+  "predictions_frozen": ["13:10", "16:05"],// 예측 고정된 그룹 (변경 불가)
+  "results": true                           // 결과 포스팅 완료 여부
+}
+```
 
 ### 주의사항 ⚠️
 - **`post_state_YYYY-MM-DD.json`이 웹 레포에 없으면** GitHub Actions 매 실행마다 상태 리셋
-- 상태 리셋 시: 라인업 갱신 여부 추적 불가 → 중복 재실행 or 누락 가능
+- 상태 리셋 시: frozen 정보 소실 → 이미 고정된 그룹이 재갱신될 수 있음
 - GitHub Actions는 웹 레포 커밋 시 `post_state_*.json`도 함께 push (정상 작동 시 자동 유지)
 
 ### 라인업 갱신 미반영 시 수동 대응
@@ -85,6 +142,13 @@ cd "mlb-predictor"
 python3 main.py
 ```
 → 최신 라인업으로 재예측 후 GitHub 자동 push
+
+### 이런 경우 발생하면 이 문서 참고
+| 증상 | 원인 | 대응 |
+|------|------|------|
+| 경기 시작 직전에도 "Awaiting Lineup" 표시 | MLB API Warmup 버그 | 자동 처리됨 (코드 수정 완료) |
+| 라인업 확정 후 예측값이 또 바뀜 | frozen 미처리 | 자동 처리됨 (frozen 로직 추가 완료) |
+| frozen 그룹이 재실행됨 | post_state 파일 소실 | GitHub Actions 웹 레포 push 로그 확인 |
 
 ---
 
