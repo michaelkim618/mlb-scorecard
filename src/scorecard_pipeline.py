@@ -1538,7 +1538,10 @@ def run(game_date: Optional[str] = None) -> list:
                 "away": g.get("actual_away"),
                 "home": g.get("actual_home"),
             },
-            "lineup_confirmed": bat_source == "lineup",  # ← 실제 MLB 라인업만 확정으로 인정
+            "lineup_confirmed": (
+                bat_source == "lineup"                    # 실제 MLB 라인업 API 성공
+                or g.get("status") in ("Live", "Final")  # 경기 진행 중/종료 → 라인업 당연히 확정
+            ),
             "sp_tbd": {
                 "away": away_is_tbd,
                 "home": home_is_tbd,
