@@ -317,8 +317,8 @@ def run(game_date: Optional[str] = None) -> list:
         # ── 🔒 라인업 확정 경기: 기존 예측 재사용 (승률 고정) ─────────────
         _game_pk = g.get("gamePk")
         _ex = _existing_preds.get(_game_pk) if _game_pk else None
-        if _ex and _ex.get("lineup_confirmed") and _ex.get("actual_score", {}).get("away") is None:
-            # 경기 결과는 아직 없고, 라인업은 이미 확정된 경기 → 예측 고정
+        if _ex and _ex.get("lineup_confirmed"):
+            # 라인업 확정된 경기 → 예측 고정 (Live 중 스코어 있어도 win_prob 불변)
             # actual_score / actual_winner / model_correct 만 최신 스케줄 데이터로 갱신
             _ex_copy = dict(_ex)
             _ex_copy["actual_score"] = {
