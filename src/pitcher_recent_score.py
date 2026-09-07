@@ -338,18 +338,19 @@ def pitcher_score(stats: dict, season_era: float = None,
     # Hot 판정 받아 과대평가되는 케이스 방지.
     # ERA가 아무리 좋아도 30pt(리그 최저 수준) 고정. 단, 오프너/불펜 피처 제외.
     SP_SINGLE_SAMPLE_CAP = 30.0
-    if n_games == 1:
-        score = SP_SINGLE_SAMPLE_CAP
-        # stats에 표시용 플래그 추가 (scorecard_pipeline에서 출력에 활용)
+    _n_games_sample = stats.get("n_games", 5)
+    if _n_games_sample == 1:
+        # 단 1경기만 있으면 ERA/트렌드/시즌ERA 등 모든 후속 보정 없이 즉시 반환
+        # 투수 능력 평가 불가 → 리그 최저 수준(30pt) 고정
         stats["single_sample_capped"] = True
+        return SP_SINGLE_SAMPLE_CAP
 
     # 샘플 신뢰도 보정: n_games < 5이면 리그 평균(45pt) 방향으로 회귀
     LEAGUE_AVG = 45.0
     # ERA 데이터 자체가 없는 경우 → 신뢰도를 0.5로 강제 낮춤 (불확실성 반영)
     if era_is_unknown:
         conf = min(conf, 0.5)
-    if n_games > 1:  # n_games == 1은 위에서 이미 고정됨
-        score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
+    score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
 
     # 트렌드 보정
     # hot: +3pt (소샘플 감쇠 + avg_ip 감쇠 적용) | cold: -8pt | neutral: 보정 없음
