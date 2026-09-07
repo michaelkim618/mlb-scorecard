@@ -52,7 +52,24 @@ def _resolve_web_repo(web_repo_arg=None) -> Path:
 def load_season_results(out_file: Path = None) -> dict:
     f = out_file or (SCRIPT_DIR.parent.parent / "mlb-scorecard-web" / "public" / "season_results.json")
     if f.exists():
-        return json.loads(f.read_text(encoding="utf-8"))
+        data = json.loads(f.read_text(encoding="utf-8"))
+        # ── 중복 항목 자동 제거 (game_key 기준) ──────────────────────────
+        # 복수 워크플로 실행 또는 레이스 컨디션으로 동일 경기가 두 번 삽입된 경우 정리.
+        # 첫 번째로 등장한 항목(초기 픽)을 보존하고 이후 중복은 버림.
+        seen_keys: set = set()
+        deduped: list = []
+        dups = 0
+        for g in data.get("games", []):
+            k = game_key(g)
+            if k not in seen_keys:
+                seen_keys.add(k)
+                deduped.append(g)
+            else:
+                dups += 1
+        if dups:
+            print(f"  ⚠️  season_results 중복 {dups}건 제거 (game_key 기준)")
+            data["games"] = deduped
+        return data
     return {
         "season": SEASON_YEAR,
         "start_date": SEASON_START,
