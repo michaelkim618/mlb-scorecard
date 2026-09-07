@@ -437,7 +437,9 @@ def run(game_date: Optional[str] = None) -> list:
             elif sp.get("rest_note") == "long_rest":  notes.append(f"🔄복귀{sp['rest_days']}일(trend리셋)")
             elif sp.get("rest_note") == "extra_rest": notes.append(f"💤장기휴식{sp['rest_days']}일")
             elif sp.get("rest_days") is not None: notes.append(f"휴식{sp['rest_days']}일")
-            if sp.get("sample_confidence", 1.0) < 1.0:
+            if sp.get("single_sample_capped"):
+                notes.append(f"샘플1경기→최저점30pt")
+            elif sp.get("sample_confidence", 1.0) < 1.0:
                 notes.append(f"샘플{sp['n_games']}경기")
             velo = sp.get("fb_velo")
             if velo is not None and velo < 92.0:

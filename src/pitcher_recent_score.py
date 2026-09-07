@@ -333,12 +333,23 @@ def pitcher_score(stats: dict, season_era: float = None,
     # ERA 40% + WHIP 30% + K/9 20% + 이닝 5% + QS율 5%
     raw_score = era_s * 0.40 + whip_s * 0.30 + k9_s * 0.20 + ip_s * 0.05 + qs_s * 0.05
 
+    # ── 샘플 1경기 → 최저점 고정 (v13.1) ───────────────────────────────────
+    # 단 1경기 ERA만으로 투수 능력 판단은 불가 — Cesar Perdomo처럼 1경기 ERA 2.25로
+    # Hot 판정 받아 과대평가되는 케이스 방지.
+    # ERA가 아무리 좋아도 30pt(리그 최저 수준) 고정. 단, 오프너/불펜 피처 제외.
+    SP_SINGLE_SAMPLE_CAP = 30.0
+    if n_games == 1:
+        score = SP_SINGLE_SAMPLE_CAP
+        # stats에 표시용 플래그 추가 (scorecard_pipeline에서 출력에 활용)
+        stats["single_sample_capped"] = True
+
     # 샘플 신뢰도 보정: n_games < 5이면 리그 평균(45pt) 방향으로 회귀
     LEAGUE_AVG = 45.0
     # ERA 데이터 자체가 없는 경우 → 신뢰도를 0.5로 강제 낮춤 (불확실성 반영)
     if era_is_unknown:
         conf = min(conf, 0.5)
-    score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
+    if n_games > 1:  # n_games == 1은 위에서 이미 고정됨
+        score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
 
     # 트렌드 보정
     # hot: +3pt (소샘플 감쇠 + avg_ip 감쇠 적용) | cold: -8pt | neutral: 보정 없음
