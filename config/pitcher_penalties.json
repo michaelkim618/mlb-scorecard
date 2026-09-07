@@ -81,6 +81,51 @@
       "reason": "저탈삼진(K/9 7.42) + 제구 불안(BB/9 3.90) + 장타 허용(HR/9 1.45) 조합. QS율 20% — 5경기 중 1번만 퀄리티스타트. 8/4·8/9 연속 호투 후 8/15 ARI전 3.2IP 6ER 완전 붕괴. 강타선 상대 신뢰도 없음.",
       "added_date": "2026-08-15",
       "last_reviewed": "2026-08-15"
+    },
+    {
+      "pitcher_id": 691587,
+      "pitcher_name": "Eury Pérez",
+      "team": "Miami Marlins",
+      "penalty": -8.0,
+      "reason": "8/28 경기 제구 붕괴 — 대량 볼넷으로 대량실점. 시즌 BB% 10.7%(커리어 최악), HR/9 1.58. 구속/구위는 일급(포심 98+ mph)이나 제구 불안 시 이닝 조기 종료 패턴. 부상(허벅지 내전근) 복귀 후 일관성 미확보.",
+      "added_date": "2026-08-29",
+      "last_reviewed": "2026-08-29"
+    },
+    {
+      "pitcher_id": 695684,
+      "pitcher_name": "Elmer Rodríguez",
+      "team": "New York Yankees",
+      "penalty": -10.0,
+      "reason": "나이 어리고 제구력 불안정 — 볼넷 허용률 높고 메이저리그 상위 타선 상대 제구 붕괴 패턴. 구위는 있으나 일관성 미확보.",
+      "added_date": "2026-09-05",
+      "last_reviewed": "2026-09-05"
+    },
+    {
+      "pitcher_id": 701656,
+      "pitcher_name": "Logan Henderson",
+      "team": "Milwaukee Brewers",
+      "penalty": -8.0,
+      "reason": "포심 93~94mph 평균 구속 — 변화구가 타자들에게 쉽게 읽히는 구조로 결정구 부재. 제구는 되지만 구종 조합 한계로 강타선 상대 시 붕괴 위험.",
+      "added_date": "2026-09-05",
+      "last_reviewed": "2026-09-05"
+    },
+    {
+      "pitcher_id": 804267,
+      "pitcher_name": "Zac Thornton",
+      "team": "New York Mets",
+      "penalty": -10.0,
+      "reason": "저구속 포심 + 변화구 가독성 높음 — 타자들이 쉽게 읽는 구종 배합으로 결정구 없음. 메이저리그 수준 구위 미달.",
+      "added_date": "2026-09-05",
+      "last_reviewed": "2026-09-05"
+    },
+    {
+      "pitcher_id": 605280,
+      "pitcher_name": "Clay Holmes",
+      "team": "Chicago Cubs",
+      "penalty": -7.0,
+      "reason": "전형적인 Boom or Bust 패턴 — 시즌 ERA 2.83으로 평균은 우수하나 특정 경기에서 완전 붕괴. 8/8 KC전 4.0IP 4ER(ERA 9.00), 9/6 MIA전 4.1IP 8ER(ERA 17.56) 폭발. 최근 6경기 누적 ERA 3.51. 컨디션 기복이 심해 강타선 상대 시 신뢰도 낮음.",
+      "added_date": "2026-09-06",
+      "last_reviewed": "2026-09-06"
     }
   ],
   "watch_list": [
