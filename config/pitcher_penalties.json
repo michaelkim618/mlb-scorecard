@@ -126,6 +126,15 @@
       "reason": "전형적인 Boom or Bust 패턴 — 시즌 ERA 2.83으로 평균은 우수하나 특정 경기에서 완전 붕괴. 8/8 KC전 4.0IP 4ER(ERA 9.00), 9/6 MIA전 4.1IP 8ER(ERA 17.56) 폭발. 최근 6경기 누적 ERA 3.51. 컨디션 기복이 심해 강타선 상대 시 신뢰도 낮음.",
       "added_date": "2026-09-06",
       "last_reviewed": "2026-09-06"
+    },
+    {
+      "pitcher_id": 680736,
+      "pitcher_name": "Justin Wrobleski",
+      "team": "Los Angeles Dodgers",
+      "penalty": -8.0,
+      "reason": "8월 이후 지속적 하락세 — 최근 6경기(8/3~9/6) 24.7IP 25ER ERA 9.12. 8/3 CHC전 4.1IP 7ER(ERA 14.54), 8/9 ARI전 3.1IP 3ER, 9/1 STL전 2.0IP 2ER, 9/6 WSH전 3.0IP 4ER(ERA 12.00). 약팀 상대에도 조기강판 반복. 전반기 ERA 2점대와 완전히 다른 투수. Boom or Bust가 아닌 지속 하락세.",
+      "added_date": "2026-09-06",
+      "last_reviewed": "2026-09-06"
     }
   ],
   "watch_list": [
