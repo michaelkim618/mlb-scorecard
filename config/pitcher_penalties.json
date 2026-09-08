@@ -135,6 +135,15 @@
       "reason": "8월 이후 지속적 하락세 — 최근 6경기(8/3~9/6) 24.7IP 25ER ERA 9.12. 8/3 CHC전 4.1IP 7ER(ERA 14.54), 8/9 ARI전 3.1IP 3ER, 9/1 STL전 2.0IP 2ER, 9/6 WSH전 3.0IP 4ER(ERA 12.00). 약팀 상대에도 조기강판 반복. 전반기 ERA 2점대와 완전히 다른 투수. Boom or Bust가 아닌 지속 하락세.",
       "added_date": "2026-09-06",
       "last_reviewed": "2026-09-06"
+    },
+    {
+      "pitcher_id": 656302,
+      "pitcher_name": "Dylan Cease",
+      "team": "Toronto Blue Jays",
+      "penalty": -10.0,
+      "reason": "9/7 OAK전 ERA 1.5 WHIP 0.83 최우수 지표에도 불구하고 OAK에 6실점 허용 패배(TOR 5-6). 모델 61.4% 압도적 우세 예측이 빗나감 — 구위 지표와 실전 결과 괴리 크고 A's 타선에 특히 취약한 패턴 존재 가능성. 다음 등판까지 패널티 유지.",
+      "added_date": "2026-09-07",
+      "last_reviewed": "2026-09-07"
     }
   ],
   "watch_list": [
