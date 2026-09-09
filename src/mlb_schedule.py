@@ -48,7 +48,7 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
     params = {
         "sportId": 1,
         "date": game_date,
-        "hydrate": "probablePitcher",
+        "hydrate": "probablePitcher,linescore",
     }
     resp = requests.get(url, params=params, timeout=15)
     resp.raise_for_status()
@@ -69,10 +69,16 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
             away_record = away.get("leagueRecord", {})
             home_record = home.get("leagueRecord", {})
 
-            # 실제 경기 결과 (Final인 경우에만)
+            # 실제 경기 결과 (Live 및 Final 모두 반영)
             status_state = g["status"]["abstractGameState"]
-            actual_away  = away.get("score")   # None if not final
+            actual_away  = away.get("score")   # None if Preview
             actual_home  = home.get("score")
+            # linescore에서 보완 (Live 경기 스코어)
+            if actual_away is None or actual_home is None:
+                linescore = g.get("linescore", {})
+                ls_teams  = linescore.get("teams", {})
+                actual_away = ls_teams.get("away", {}).get("runs", actual_away)
+                actual_home = ls_teams.get("home", {}).get("runs", actual_home)
             actual_winner = None
             if status_state == "Final":
                 if away.get("isWinner"):
