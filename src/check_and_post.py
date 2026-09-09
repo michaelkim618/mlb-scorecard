@@ -478,6 +478,40 @@ def check_and_post_predictions(game_date: str):
         if not lineup_refreshed:
             print("\n✅ 지금 포스팅할 그룹 없음.")
 
+    # ── Live/Final 경기 lineup_confirmed 자동 동기화 ──────────────────────────
+    # 포스팅·갱신이 없더라도 경기가 Live/Final로 전환됐으면 predictions.json 갱신
+    # (포스팅 완료·고정 후에도 30분마다 status 동기화 보장)
+    if not lineup_refreshed:
+        pred_path = OUTPUT_DIR / "predictions.json"
+        if pred_path.exists():
+            try:
+                preds_data = json.loads(pred_path.read_text(encoding="utf-8"))
+                preds_list = preds_data.get("games", []) if isinstance(preds_data, dict) else preds_data
+                pred_map = {str(g.get("game_pk", "")): g for g in preds_list}
+
+                # Live API 기준 confirmed인데 predictions.json은 아직 False인 경기 탐색
+                needs_sync = any(
+                    g.get("lineup_confirmed")
+                    and not pred_map.get(str(g["gamePk"]), {}).get("lineup_confirmed")
+                    for g in games
+                )
+                if needs_sync:
+                    unsynced = [
+                        f"{g['away']} @ {g['home']}"
+                        for g in games
+                        if g.get("lineup_confirmed")
+                        and not pred_map.get(str(g["gamePk"]), {}).get("lineup_confirmed")
+                    ]
+                    print(f"\n🔄 Live/Final 경기 lineup_confirmed 미동기화 {len(unsynced)}건 감지 → 파이프라인 재실행")
+                    for u in unsynced:
+                        print(f"   - {u}")
+                    run_pipeline(game_date)
+                    apply_frozen_predictions(game_date, state)
+                    copy_predictions_to_web(game_date)
+                    print("   ✅ lineup_confirmed 동기화 완료")
+            except Exception as _sync_e:
+                print(f"  ⚠️ 동기화 체크 오류: {_sync_e}")
+
 
 def check_and_post_results(game_date: str):
     """결과 비교 포스팅"""
