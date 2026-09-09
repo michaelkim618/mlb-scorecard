@@ -255,7 +255,30 @@ jobs:
         run: |
           YESTERDAY=$(TZ='America/Los_Angeles' date -d "yesterday" +%Y-%m-%d 2>/dev/null || TZ='America/Los_Angeles' date -v-1d +%Y-%m-%d)
           echo "📊 전날($YESTERDAY) 결과 데이터 생성 중..."
+          # 전날 파이프라인 실행 전 오늘 predictions.json 백업
+          TODAY="${{ steps.config.outputs.RUN_DATE }}"
+          if [ -f mlb-scorecard-web/public/predictions.json ]; then
+            cp mlb-scorecard-web/public/predictions.json /tmp/today_predictions_backup.json
+            echo "✅ 오늘 predictions.json 백업 완료"
+          fi
           python src/scorecard_pipeline.py $YESTERDAY || echo "⚠️ 전날 파이프라인 실패 (계속 진행)"
+          # 전날 파이프라인이 웹 predictions.json 을 덮어쓰므로 오늘 것으로 복원
+          if [ -f /tmp/today_predictions_backup.json ]; then
+            BACKUP_DATE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('/tmp/today_predictions_backup.json'))
+              g = d if isinstance(d, list) else d.get('games', [])
+              print(g[0].get('date','') if g else '')
+          except: print('')
+          " 2>/dev/null)
+            if [ "$BACKUP_DATE" = "$TODAY" ]; then
+              cp /tmp/today_predictions_backup.json mlb-scorecard-web/public/predictions.json
+              echo "✅ 오늘($TODAY) predictions.json 복원 완료 (전날 파이프라인 덮어쓰기 방지)"
+            else
+              echo "ℹ️  백업 날짜($BACKUP_DATE) ≠ 오늘($TODAY) — 복원 스킵"
+            fi
+          fi
 
       - name: season_results.json 실시간 업데이트 (항상 — 경기 종료 즉시 반영)
         run: |
