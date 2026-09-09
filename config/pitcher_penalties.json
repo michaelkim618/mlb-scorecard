@@ -137,6 +137,15 @@
       "last_reviewed": "2026-09-06"
     },
     {
+      "pitcher_id": 680732,
+      "pitcher_name": "Sean Burke",
+      "team": "Chicago White Sox",
+      "penalty": -8.0,
+      "reason": "Boom or Bust 극단적 패턴 — 9/8 PIT전 1.1IP 7ER 조기강판(MLB 최약체 상대), 8/26 TEX전 3IP 볼넷 8개 제구 완전 붕괴. 시즌 ERA 3.58로 전체 지표는 준수하나 8월 중반 이후 폭발 빈도 증가. 다음 등판 조기강판 시 -10%로 상향 예정.",
+      "added_date": "2026-09-08",
+      "last_reviewed": "2026-09-08"
+    },
+    {
       "pitcher_id": 656302,
       "pitcher_name": "Dylan Cease",
       "team": "Toronto Blue Jays",
