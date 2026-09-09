@@ -1588,7 +1588,9 @@ def run(game_date: Optional[str] = None) -> list:
     # ── 웹사이트 public/predictions.json 자동 동기화 ──────────────────
     # mlb-scorecard-web/public/predictions.json 을 항상 최신으로 유지
     WEB_PUBLIC_DIRS = [
-        Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "public",
+        Path(__file__).parent.parent / "mlb-scorecard-web" / "public",   # GitHub Actions: repo_root/mlb-scorecard-web/
+        Path(__file__).parent.parent / "mlb-scorecard-web" / "dist",
+        Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "public",  # 로컬 fallback
         Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "dist",
     ]
     for web_dir in WEB_PUBLIC_DIRS:
