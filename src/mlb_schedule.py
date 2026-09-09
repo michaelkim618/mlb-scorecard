@@ -73,8 +73,8 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
             status_state = g["status"]["abstractGameState"]
             actual_away  = away.get("score")   # None if Preview
             actual_home  = home.get("score")
-            # linescore에서 보완 (Live 경기 스코어)
-            if actual_away is None or actual_home is None:
+            # linescore에서 보완 (Live 경기 스코어) — Preview(미시작)는 제외
+            if status_state in ("Live", "Final") and (actual_away is None or actual_home is None):
                 linescore = g.get("linescore", {})
                 ls_teams  = linescore.get("teams", {})
                 actual_away = ls_teams.get("away", {}).get("runs", actual_away)

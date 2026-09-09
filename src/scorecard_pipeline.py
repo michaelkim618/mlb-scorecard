@@ -327,11 +327,17 @@ def run(game_date: Optional[str] = None) -> list:
             }
             _actual_w = g.get("actual_away")
             _actual_h = g.get("actual_home")
-            if _actual_w is not None and _actual_h is not None:
+            _g_status = g.get("status", "")
+            # Final 경기만 actual_winner / model_correct 확정 (Live/Preview는 중간 스코어 → 미확정 유지)
+            if _g_status == "Final" and _actual_w is not None and _actual_h is not None:
                 _aw = _ex_copy.get("away", "")
                 _hw = _ex_copy.get("home", "")
                 _ex_copy["actual_winner"] = _aw if _actual_w > _actual_h else (_hw if _actual_h > _actual_w else "무승부")
                 _ex_copy["model_correct"] = (_ex_copy["actual_winner"] == _ex_copy.get("model_winner"))
+            elif _g_status in ("Live", "Preview"):
+                # 진행 중 / 미시작 → actual_score만 업데이트, winner/correct는 None 유지
+                _ex_copy["actual_winner"] = None
+                _ex_copy["model_correct"] = None
             print(f"    [🔒 예측고정] 라인업 확정 완료 — 승률 {_ex_copy['win_prob']['away']}% vs {_ex_copy['win_prob']['home']}% 유지")
             results.append(_ex_copy)
             continue
