@@ -39,10 +39,10 @@ def _calc_hitting_stats(logs: list, season_stats: dict = None) -> dict:
         rpg_cold = last5_rpg <= runs_per_g * 0.80   # 최근 5경기 득점 20%↓
         avg_cold = last5_avg <= recent_avg - 0.015   # 최근 5경기 타율 .015↓
 
-        if rpg_hot and avg_hot:
-            bat_trend = "hot"    # 득점 + 타율 모두 상승 → 확실한 hot
-        elif rpg_cold and avg_cold:
-            bat_trend = "cold"   # 득점 + 타율 모두 하락 → 확실한 cold
+        if rpg_hot or avg_hot:
+            bat_trend = "hot"    # 득점 OR 타율 상승 → hot (OR 조건, v5)
+        elif rpg_cold or avg_cold:
+            bat_trend = "cold"   # 득점 OR 타율 하락 → cold (OR 조건, v5)
         else:
             bat_trend = "stable"
     else:
@@ -110,46 +110,51 @@ def batting_score(stats: dict) -> float:
     """
     타선 통계 → 0~100 점수
 
-    v4 가중치:
-      시즌 OPS  20%
-      시즌 SLG  15% (장타 폭발력)
-      최근 AVG  30%
-      득점/경기 25%
-      HR/경기   10%
+    v5 가중치 (2026-09-08 개선):
+      시즌 OPS    30%  ← 20%→30% (가장 안정적인 종합지표)
+      시즌 SLG    10%  ← 15%→10% (OPS에 이미 포함, 중복 축소)
+      최근 OPS    25%  ← 최근AVG30%→최근OPS25% (타율→OPS로 교체, 비중 축소)
+      득점/경기   25%  ← 유지
+      HR/경기     10%  ← 유지
 
     트렌드 보정 (최근 5경기 vs 전체 10경기):
-      hot   → +4pt (득점 25%↑ + 타율 .020↑)
-      cold  → -4pt (득점 25%↓ + 타율 .020↓)
+      hot   → +2pt (득점 OR OPS 개선 — OR 조건으로 완화)
+      cold  → -2pt (득점 OR OPS 하락 — OR 조건으로 완화)
       stable→ 보정 없음
 
-    변경사항 (v4):
-      - explosive_games 보너스 제거 (득점/경기와 중복 집계)
-      - 최근 5경기 트렌드(hot/cold) 보정 추가
+    변경사항 (v5):
+      - OPS 비중 20%→30% (시즌 실력 더 반영)
+      - SLG 비중 15%→10% (OPS 중복 축소)
+      - 최근 AVG→최근 OPS로 교체, 비중 30%→25%
+      - 트렌드 보정: AND→OR 조건, ±4pt→±2pt (과민반응 완화)
     """
-    ops  = stats.get("season_ops", 0.720)
-    slg  = stats.get("season_slg", 0.400)
-    ravg = stats.get("recent_avg", 0.250)
-    rpg  = stats.get("runs_per_g", 4.3)
-    hr   = stats.get("hr_per_g",   1.1)
+    ops   = stats.get("season_ops", 0.720)
+    slg   = stats.get("season_slg", 0.400)
+    # 최근 OPS 계산: recent_ops 없으면 recent_avg에서 추정 (OBP≈avg+0.06, OPS≈OBP+SLG)
+    recent_ops = stats.get("recent_ops",
+                           stats.get("recent_avg", 0.250) + 0.060 +
+                           stats.get("season_slg", 0.400) * 0.95)
+    rpg   = stats.get("runs_per_g", 4.3)
+    hr    = stats.get("hr_per_g",   1.1)
     trend = stats.get("bat_trend", "stable")
 
-    ops_s  = max(0.0, min(100.0, (ops  - 0.600) / 0.350 * 100.0))
-    slg_s  = max(0.0, min(100.0, (slg  - 0.300) / 0.300 * 100.0))
-    ravg_s = max(0.0, min(100.0, (ravg - 0.200) / 0.160 * 100.0))
-    rpg_s  = max(0.0, min(100.0, (rpg  - 2.0)   / 6.0   * 100.0))
-    hr_s   = max(0.0, min(100.0, (hr   - 0.3)   / 2.2   * 100.0))
+    ops_s   = max(0.0, min(100.0, (ops        - 0.600) / 0.350 * 100.0))
+    slg_s   = max(0.0, min(100.0, (slg        - 0.300) / 0.300 * 100.0))
+    rops_s  = max(0.0, min(100.0, (recent_ops - 0.600) / 0.350 * 100.0))
+    rpg_s   = max(0.0, min(100.0, (rpg        - 2.0)   / 6.0   * 100.0))
+    hr_s    = max(0.0, min(100.0, (hr         - 0.3)   / 2.2   * 100.0))
 
-    score = (ops_s  * 0.20 +
-             slg_s  * 0.15 +
-             ravg_s * 0.30 +
+    score = (ops_s  * 0.30 +
+             slg_s  * 0.10 +
+             rops_s * 0.25 +
              rpg_s  * 0.25 +
              hr_s   * 0.10)
 
-    # 최근 5경기 트렌드 보정
+    # 최근 5경기 트렌드 보정 (OR 조건, ±2pt)
     if trend == "hot":
-        score = min(100.0, score + 4.0)
+        score = min(100.0, score + 2.0)
     elif trend == "cold":
-        score = max(0.0,   score - 4.0)
+        score = max(0.0,   score - 2.0)
 
     return round(max(0.0, min(100.0, score)), 1)
 
@@ -216,9 +221,9 @@ def analyze_lineup_batting(players: list, team_hit_logs: list = None) -> dict:
             avg_hot  = last5_avg >= avg_recent + 0.015
             rpg_cold = last5_rpg <= runs_per_g * 0.80
             avg_cold = last5_avg <= avg_recent - 0.015
-            if rpg_hot and avg_hot:
+            if rpg_hot or avg_hot:
                 bat_trend = "hot"
-            elif rpg_cold and avg_cold:
+            elif rpg_cold or avg_cold:
                 bat_trend = "cold"
     else:
         runs_per_g = 4.3
@@ -312,9 +317,9 @@ def analyze_lineup_batting_with_splits(
             avg_hot  = last5_avg >= avg_recent + 0.015
             rpg_cold = last5_rpg <= runs_per_g * 0.80
             avg_cold = last5_avg <= avg_recent - 0.015
-            if rpg_hot and avg_hot:
+            if rpg_hot or avg_hot:
                 bat_trend = "hot"
-            elif rpg_cold and avg_cold:
+            elif rpg_cold or avg_cold:
                 bat_trend = "cold"
     else:
         runs_per_g = 4.3
