@@ -82,7 +82,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Playwright 브라우저 설치
-        run: playwright install chromium --with-deps
+        continue-on-error: true   # Chrome 패키지 서버 장애 시에도 계속 진행
+        run: playwright install chromium --with-deps || playwright install chromium
 
       - name: 날짜 & 모드 설정
         id: config
