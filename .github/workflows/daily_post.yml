@@ -107,8 +107,9 @@ jobs:
             MODE="${{ github.event.inputs.mode }}"
           elif [ "$PST_HOUR" = "00" ]; then
             MODE="daily_init"
-          elif [ "$PST_HOUR" = "06" ]; then
-            # 새벽 6시: 전날 최종 결과 포스팅 (SNS 포함)
+          elif [ "$PST_HOUR" -ge "6" ] && [ "$PST_HOUR" -le "10" ]; then
+            # 06:00~10:59 PT: 전날 최종 결과 포스팅 (크론 지연 최대 5시간 허용)
+            # check_and_post.py 내부의 state["results"] 체크로 중복 포스팅 방지
             MODE="results"
             RUN_DATE="$YESTERDAY"
           else
