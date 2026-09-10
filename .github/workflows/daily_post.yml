@@ -58,6 +58,12 @@ on:
       mode:
         description: '실행 모드: prediction (기본) 또는 results'
         required: false
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/daily_post.yml'
+      - 'trigger'
         default: 'prediction'
 
 concurrency:
