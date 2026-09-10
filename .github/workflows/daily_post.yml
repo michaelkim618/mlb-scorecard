@@ -64,7 +64,6 @@ on:
     paths:
       - '.github/workflows/daily_post.yml'
       - 'trigger'
-        default: 'prediction'
 
 concurrency:
   group: mlb-daily-post
