@@ -168,12 +168,12 @@ def run_slides(game_date: str, post_num: int):
         print(f"  [경고] 슬라이드 오류:\n{result.stderr[-300:]}")
 
 
-def run_instagram_post(game_date: str):
+def run_instagram_post(game_date: str, post_type: str = "prediction"):
     """인스타그램 포스팅"""
-    print(f"  📸 인스타그램 포스팅 중...")
+    print(f"  📸 인스타그램 포스팅 중... (type={post_type})")
     env = {**os.environ}
     result = subprocess.run(
-        [sys.executable, "instagram/post_to_instagram.py", "--date", game_date],
+        [sys.executable, "instagram/post_to_instagram.py", "--date", game_date, "--type", post_type],
         capture_output=True, text=True, cwd=str(BASE_DIR), env=env
     )
     if result.returncode != 0:
@@ -556,7 +556,7 @@ def check_and_post_results(game_date: str):
         )
 
     # 결과 포스팅
-    run_instagram_post(game_date)           # 인스타그램 결과 포스팅
+    run_instagram_post(game_date, post_type="results")  # 인스타그램 결과 포스팅
     run_twitter_post(game_date, post_type="results")
 
     # 상태 저장
