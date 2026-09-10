@@ -33,7 +33,7 @@
     "bp_weight":  0.22,
     "bat_weight": 0.25,
     "sit_weight": 0.15,
-    "home_bonus": 1.5,
+    "home_bonus": 2.5,
     "sigmoid_k":  0.055,
     "tbd_penalty_score": 45.0,
     "hard_cap": 63.0,

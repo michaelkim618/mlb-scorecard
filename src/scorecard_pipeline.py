@@ -1137,8 +1137,8 @@ def run(game_date: Optional[str] = None) -> list:
         # 최종 확률 50~55% 박빙 구간: 원정팀 pick이면 홈 이점 감안 -2.5% 보정
         # 홈팀 pick이면 이미 HOME_BONUS 포함 → 변경 없음
         CLOSE_GAME_LOW  = 50.0
-        CLOSE_GAME_HIGH = 55.0
-        CLOSE_GAME_ADJ  = 2.5
+        CLOSE_GAME_HIGH = 58.0   # v14: 55→58% (원정팀 과대평가 범위 확대)
+        CLOSE_GAME_ADJ  = 3.0    # v14: 2.5→3.0%
 
         if CLOSE_GAME_LOW <= away_win_pct <= CLOSE_GAME_HIGH and away_win_pct > home_win_pct:
             # 원정팀이 픽된 박빙 경기 → 원정팀 확률 하향
