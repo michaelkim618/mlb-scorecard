@@ -139,6 +139,16 @@ jobs:
           python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }}
           echo "✅ 예측 완료 — SNS 포스팅 없음, 홈페이지만 업데이트"
 
+      # daily_init: TBD 선발투수 이메일 알림
+      - name: TBD 선발투수 이메일 알림 (daily_init)
+        if: steps.config.outputs.MODE == 'daily_init'
+        env:
+          GMAIL_USER:     ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS: ${{ secrets.GMAIL_APP_PASS }}
+          NOTIFY_TO:      ${{ secrets.NOTIFY_TO }}
+        run: |
+          python src/notify_tbd_pitchers.py --date ${{ steps.config.outputs.RUN_DATE }} || echo "⚠️ TBD 알림 실패 (계속 진행)"
+
       # daily_init: 오늘 예측을 즉시 웹에 저장 (이후 전날 파이프라인이 output/ 덮어쓰기 전에)
       - name: predictions.json 웹 업데이트 (daily_init — 오늘 예측 즉시 저장)
         if: steps.config.outputs.MODE == 'daily_init'
