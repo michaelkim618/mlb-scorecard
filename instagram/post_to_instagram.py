@@ -163,12 +163,17 @@ def get_top_picks(preds: list, n=5) -> list:
 
         away_pct = wp.get("away", 50)
         home_pct = wp.get("home", 50)
+        edge     = g.get("edge", 0) or 0          # 음수 = 시장이 상대팀 선호
+        market_avoid = edge <= -10                  # 🚫 시장 역배 경고 기준
+
         if home_pct >= away_pct and home_pct >= 55:
             picks.append({
                 "pick": abbr(g.get("home", "???")),
                 "opp":  abbr(g.get("away", "???")),
                 "pct":  home_pct,
                 "vs":   f"{abbr(g.get('away','???'))} @ {abbr(g.get('home','???'))}",
+                "edge": edge,
+                "market_avoid": market_avoid,
             })
         elif away_pct > home_pct and away_pct >= 55:
             picks.append({
@@ -176,8 +181,11 @@ def get_top_picks(preds: list, n=5) -> list:
                 "opp":  abbr(g.get("home", "???")),
                 "pct":  away_pct,
                 "vs":   f"{abbr(g.get('away','???'))} @ {abbr(g.get('home','???'))}",
+                "edge": edge,
+                "market_avoid": market_avoid,
             })
-    picks.sort(key=lambda x: x["pct"], reverse=True)
+    # 정렬: 비추천 픽은 뒤로, 같은 그룹 내에선 확률 높은 순
+    picks.sort(key=lambda x: (x.get("market_avoid", False), -x["pct"]))
     result = picks[:n]
     if result and skipped_tbd > 0:
         result[0]["skipped_tbd"] = skipped_tbd
@@ -226,23 +234,37 @@ def build_prediction_caption(post_date: str, preds: list) -> str:
     real_picks  = [p for p in top_picks if "vs" in p]
     skipped_tbd = top_picks[0].get("skipped_tbd", 0) if top_picks else 0
 
-    # ── 픽 리스트 ──
+    # 비추천 픽 분리
+    clean_picks  = [p for p in real_picks if not p.get("market_avoid")]
+    avoid_picks  = [p for p in real_picks if p.get("market_avoid")]
+
+    # ── 픽 리스트 (정상 픽) ──
     lines = []
-    for i, p in enumerate(real_picks):
+    for i, p in enumerate(clean_picks):
         star = "⭐" if i == 0 else "  ✅"
         lines.append(f"{star} {p['vs']}  →  {p['pick']} {p['pct']:.0f}%")
-    picks_block = "\n".join(lines)
+
+    # ── 비추천 픽 (edge ≤ -10%) ──
+    avoid_lines = []
+    for p in avoid_picks:
+        avoid_lines.append(f"  🚫 {p['vs']}  →  {p['pick']} {p['pct']:.0f}%  (market disagrees)")
+
+    picks_block  = "\n".join(lines)
+    avoid_block  = ("\n\n⚠️ Market Disagreement — Avoid:\n" + "\n".join(avoid_lines)) if avoid_lines else ""
 
     tbd_note   = f"\n⚠️ {skipped_tbd} games excluded (SP/lineup unconfirmed)" if skipped_tbd > 0 else ""
-    top_tag    = real_picks[0]['pick'].replace(" ", "") if real_picks else "Baseball"
-    confidence = "⭐ HIGH CONFIDENCE" if real_picks and real_picks[0]["pct"] >= 63 else "🎯 TODAY'S TOP PICK"
+    best_pick  = clean_picks[0] if clean_picks else (real_picks[0] if real_picks else None)
+    top_tag    = best_pick['pick'].replace(" ", "") if best_pick else "Baseball"
+    confidence = "⭐ HIGH CONFIDENCE" if best_pick and best_pick["pct"] >= 63 else "🎯 TODAY'S TOP PICK"
+    top_line   = f"{confidence}: {best_pick['vs']}  →  {best_pick['pick']} {best_pick['pct']:.0f}%" if best_pick else ""
 
     caption = (
         f"⚾ MLB Scorecard | {date_label}\n\n"
         f"{yday_block}"
-        f"{confidence}: {real_picks[0]['vs']}  →  {real_picks[0]['pick']} {real_picks[0]['pct']:.0f}%\n\n"
+        f"{top_line}\n\n"
         f"Today's Full Card ({total} games analyzed):\n"
         f"{picks_block}"
+        f"{avoid_block}"
         f"{tbd_note}\n\n"
         "────────────────────\n"
         f"{season_line}\n"

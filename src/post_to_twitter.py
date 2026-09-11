@@ -143,12 +143,17 @@ def get_top_picks(preds: list, n=5) -> list:
 
         away_pct = wp.get("away", 50)
         home_pct = wp.get("home", 50)
+        edge     = g.get("edge", 0) or 0
+        market_avoid = edge <= -10                  # 🚫 시장 역배 경고 기준
+
         if home_pct >= away_pct and home_pct >= 55:
             picks.append({
                 "pick": abbr(g.get("home", "???")),
                 "opp":  abbr(g.get("away", "???")),
                 "pct":  home_pct,
                 "vs":   f"{abbr(g.get('away','???'))} @ {abbr(g.get('home','???'))}",
+                "edge": edge,
+                "market_avoid": market_avoid,
             })
         elif away_pct > home_pct and away_pct >= 55:
             picks.append({
@@ -156,8 +161,11 @@ def get_top_picks(preds: list, n=5) -> list:
                 "opp":  abbr(g.get("home", "???")),
                 "pct":  away_pct,
                 "vs":   f"{abbr(g.get('away','???'))} @ {abbr(g.get('home','???'))}",
+                "edge": edge,
+                "market_avoid": market_avoid,
             })
-    picks.sort(key=lambda x: x["pct"], reverse=True)
+    # 정렬: 비추천 픽은 뒤로, 같은 그룹 내에선 확률 높은 순
+    picks.sort(key=lambda x: (x.get("market_avoid", False), -x["pct"]))
     result = picks[:n]
     # skipped_tbd 정보를 첫 번째 pick에 메타데이터로 붙여서 전달
     if result and skipped_tbd > 0:
@@ -189,23 +197,35 @@ def build_prediction_tweet(post_date: str, preds: list) -> str:
         )
 
     skipped_tbd = top_picks[0].get("skipped_tbd", 0) if top_picks else 0
-    real_picks = [p for p in top_picks if "vs" in p]
+    real_picks  = [p for p in top_picks if "vs" in p]
+
+    # 비추천 픽 분리
+    clean_picks = [p for p in real_picks if not p.get("market_avoid")]
+    avoid_picks = [p for p in real_picks if p.get("market_avoid")]
 
     lines = []
-    for i, p in enumerate(real_picks):
+    for i, p in enumerate(clean_picks):
         star = "⭐" if i == 0 else "✅"
         lines.append(f"{star} {p['vs']} {p['pick']} {p['pct']:.0f}%")
-    picks_block = "\n".join(lines)
 
-    tbd_note = f"⚠️ +{skipped_tbd} games excluded (lineup unconfirmed)\n" if skipped_tbd > 0 else ""
+    avoid_lines = []
+    for p in avoid_picks:
+        avoid_lines.append(f"🚫 {p['vs']} {p['pick']} {p['pct']:.0f}% (market disagrees)")
+
+    picks_block  = "\n".join(lines)
+    avoid_block  = ("\n\n⚠️ Market disagrees — use caution:\n" + "\n".join(avoid_lines)) if avoid_lines else ""
+
+    tbd_note  = f"⚠️ +{skipped_tbd} games excluded (lineup unconfirmed)\n" if skipped_tbd > 0 else ""
     yday_line = f"{yesterday_comment(rec)}\n" if rec else ""
-    top_tag = f"#{real_picks[0]['pick'].replace(' ', '')}" if real_picks else "#Baseball"
+    best_pick = clean_picks[0] if clean_picks else (real_picks[0] if real_picks else None)
+    top_tag   = f"#{best_pick['pick'].replace(' ', '')}" if best_pick else "#Baseball"
 
     tweet = (
         f"⚾ MLB Picks | {date_label}\n"
         f"{yday_line}\n"
         f"Top Picks ({total} games):\n"
-        f"{picks_block}\n\n"
+        f"{picks_block}"
+        f"{avoid_block}\n\n"
         f"{tbd_note}"
         f"⚠️ Picks update as lineups confirm.\n"
         f"Check latest before first pitch → mlb-scorecard.com\n"
