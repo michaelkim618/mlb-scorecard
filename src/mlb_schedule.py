@@ -92,16 +92,18 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
             away_id = away["team"]["id"]
             home_id = home["team"]["id"]
 
-            # ── 수동 오버라이드 적용 ────────────────────────────────
+            # ── 수동 오버라이드 적용 (API 값과 무관하게 강제 적용) ──────
             day_overrides = PITCHER_OVERRIDES.get(game_date, {})
-            if away_id in day_overrides and not away_pitcher.get("id"):
+            if away_id in day_overrides:
                 name, pid = day_overrides[away_id]
+                prev = away_pitcher.get("fullName", "미정")
                 away_pitcher = {"fullName": name, "id": pid}
-                print(f"  [오버라이드] {away['team']['name']} 선발: {name}")
-            if home_id in day_overrides and not home_pitcher.get("id"):
+                print(f"  [오버라이드] {away['team']['name']} 선발: {prev} → {name}")
+            if home_id in day_overrides:
                 name, pid = day_overrides[home_id]
+                prev = home_pitcher.get("fullName", "미정")
                 home_pitcher = {"fullName": name, "id": pid}
-                print(f"  [오버라이드] {home['team']['name']} 선발: {name}")
+                print(f"  [오버라이드] {home['team']['name']} 선발: {prev} → {name}")
 
             game_time_pt = _to_pt_str(g.get("gameDate", ""))
             game_number   = g.get("gameNumber", 1)          # 더블헤더: 1 or 2
