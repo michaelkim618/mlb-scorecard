@@ -117,6 +117,7 @@ jobs:
           fi
 
           echo "RUN_DATE=$RUN_DATE" >> $GITHUB_OUTPUT
+          echo "PST_DATE=$PST_DATE" >> $GITHUB_OUTPUT
           echo "MODE=$MODE" >> $GITHUB_OUTPUT
           echo "✅ 날짜: $RUN_DATE | 모드: $MODE | PST시각: $PST_HOUR시"
 
@@ -218,6 +219,28 @@ jobs:
             echo "⚠️  predictions.json 없음 — 파이프라인으로 새로 생성 예정"
           fi
 
+      # results 모드: check_and_post.py가 어제 데이터를 predictions.json에 덮어쓰기 전에 오늘 예측 백업
+      - name: 오늘 predictions.json 백업 (results 모드 전)
+        if: steps.config.outputs.MODE == 'results'
+        run: |
+          TODAY="${{ steps.config.outputs.PST_DATE }}"
+          if [ -f mlb-scorecard-web/public/predictions.json ]; then
+            PRED_DATE=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('mlb-scorecard-web/public/predictions.json'))
+              dates = list(set(g.get('date','') for g in (d if isinstance(d,list) else [])))
+              print(dates[0] if dates else '')
+          except: print('')
+          " 2>/dev/null)
+            if [ "$PRED_DATE" = "$TODAY" ]; then
+              cp mlb-scorecard-web/public/predictions.json /tmp/today_pred_backup.json
+              echo "✅ 오늘($TODAY) predictions.json 백업 완료"
+            else
+              echo "ℹ️  현재 predictions.json 날짜($PRED_DATE) ≠ 오늘($TODAY) — 백업 스킵"
+            fi
+          fi
+
       - name: 스마트 포스팅 체크 & 실행 (prediction / results 모드)
         if: steps.config.outputs.MODE != 'daily_init'
         env:
@@ -233,6 +256,18 @@ jobs:
             python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }} --results
           else
             python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }}
+          fi
+
+      # results 모드: check_and_post.py가 덮어쓴 predictions.json을 오늘 예측으로 복원
+      - name: 오늘 predictions.json 복원 (results 모드 후)
+        if: steps.config.outputs.MODE == 'results'
+        run: |
+          TODAY="${{ steps.config.outputs.PST_DATE }}"
+          if [ -f /tmp/today_pred_backup.json ]; then
+            cp /tmp/today_pred_backup.json mlb-scorecard-web/public/predictions.json
+            echo "✅ 오늘($TODAY) predictions.json 복원 완료 (어제 results 덮어쓰기 방지)"
+          else
+            echo "ℹ️  백업 없음 — 복원 스킵 (오늘 예측 없었거나 날짜 불일치)"
           fi
 
       - name: 포스팅 상태 저장 (웹 레포 git — 중복 포스팅 방지)
