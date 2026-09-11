@@ -258,16 +258,20 @@ jobs:
             python src/check_and_post.py --date ${{ steps.config.outputs.RUN_DATE }}
           fi
 
-      # results 모드: check_and_post.py가 덮어쓴 predictions.json을 오늘 예측으로 복원
-      - name: 오늘 predictions.json 복원 (results 모드 후)
+      # results 모드: 어제 데이터가 output/predictions.json을 덮어쓰므로 오늘 예측 강제 재생성
+      - name: 오늘 predictions.json 재생성 (results 모드 후 — 어제 데이터 덮어쓰기 방지)
         if: steps.config.outputs.MODE == 'results'
+        env:
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
         run: |
           TODAY="${{ steps.config.outputs.PST_DATE }}"
-          if [ -f /tmp/today_pred_backup.json ]; then
-            cp /tmp/today_pred_backup.json mlb-scorecard-web/public/predictions.json
-            echo "✅ 오늘($TODAY) predictions.json 복원 완료 (어제 results 덮어쓰기 방지)"
+          echo "🔄 오늘($TODAY) 예측 재생성 중 (results 모드 후 복원)..."
+          python src/scorecard_pipeline.py $TODAY
+          if [ -f output/predictions.json ]; then
+            cp output/predictions.json mlb-scorecard-web/public/predictions.json
+            echo "✅ 오늘($TODAY) predictions.json → 웹 레포 복원 완료"
           else
-            echo "ℹ️  백업 없음 — 복원 스킵 (오늘 예측 없었거나 날짜 불일치)"
+            echo "❌ 오늘 예측 재생성 실패"
           fi
 
       - name: 포스팅 상태 저장 (웹 레포 git — 중복 포스팅 방지)
