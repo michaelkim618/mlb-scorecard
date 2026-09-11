@@ -32,6 +32,9 @@ PITCHER_OVERRIDES: dict = {
     "2026-07-07": {
         136: ("Bryan Woo", 693433),    # Seattle Mariners away vs MIA
     },
+    "2026-09-11": {
+        119: ("Blake Snell", 605483),  # LAD away @ MIA (API가 Wrobleski로 잘못 표시)
+    },
 }
 
 
