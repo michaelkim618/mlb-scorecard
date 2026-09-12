@@ -387,7 +387,12 @@ def check_and_post_predictions(game_date: str):
         # ③ 이미 갱신 완료 → 고정 여부만 판단
         if key in refreshed_groups:
             if all_confirmed:
-                # 전 경기 라인업 확정됐으면 이제 고정
+                # 전 경기가 Live/Final 전환 → 파이프라인 1회 더 실행하여
+                # lineup_confirmed / status 를 최신 값으로 갱신한 뒤 고정
+                print(f"\n🔄 그룹 {key} 전 경기 Live/Final 확인 → status/lineup_confirmed 최종 갱신 후 고정")
+                run_pipeline(game_date)
+                apply_frozen_predictions(game_date, state)
+                copy_predictions_to_web(game_date)
                 frozen_groups.append(key)
                 state["predictions_frozen"] = frozen_groups
                 # ★ frozen 시점의 예측값 스냅샷 저장
