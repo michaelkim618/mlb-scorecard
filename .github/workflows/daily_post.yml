@@ -281,7 +281,14 @@ jobs:
             cp output/predictions.json mlb-scorecard-web/public/predictions.json
             echo "✅ 오늘($TODAY) predictions.json → 웹 레포 복원 완료"
           else
-            echo "❌ 오늘 예측 재생성 실패"
+            # ★ 재생성 실패 시 — /tmp/today_pred_backup.json 복원 (results 전 백업본)
+            echo "❌ 오늘 예측 재생성 실패 — 백업본 복원 시도..."
+            if [ -f /tmp/today_pred_backup.json ]; then
+              cp /tmp/today_pred_backup.json mlb-scorecard-web/public/predictions.json
+              echo "✅ 백업본(results 실행 전) 복원 완료 → 어제 데이터 노출 방지"
+            else
+              echo "⚠️  백업본도 없음 — 웹 predictions.json 그대로 유지"
+            fi
           fi
 
       - name: 포스팅 상태 저장 (웹 레포 git — 중복 포스팅 방지)
@@ -342,13 +349,31 @@ jobs:
           # 30분마다 실행되므로 경기 종료 후 최대 30분 내 Accuracy 반영
           python src/update_season_results.py mlb-scorecard-web || echo "⚠️ season_results 업데이트 실패 (계속 진행)"
 
-      - name: 블로그 포스트 자동 생성 (결과 모드)
+      # ★ 수정: 블로그를 results 모드에서만 생성 → daily_init 모드에서도 생성
+      #   results 모드: 어제 경기 결과 기반 블로그 (recap)
+      #   daily_init 모드: 오늘 예측 기반 블로그 (preview) — 새벽 초기화 직후 생성
+      #   에러 발생 시 로그에 명확히 출력 (기존: 조용히 스킵 → 수정: 에러 visible)
+      - name: 블로그 포스트 자동 생성 (results 모드 — 어제 경기 recap)
         if: steps.config.outputs.MODE == 'results'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
         run: |
-          python src/generate_blog_post.py --date ${{ steps.config.outputs.RUN_DATE }} --web-repo mlb-scorecard-web || echo "블로그 생성 실패 (계속 진행)"
+          echo "📝 블로그 생성 시작 (results — ${{ steps.config.outputs.RUN_DATE }})"
+          python src/generate_blog_post.py --date ${{ steps.config.outputs.RUN_DATE }} --web-repo mlb-scorecard-web \
+            && echo "✅ 블로그 생성 완료" \
+            || { echo "❌ 블로그 생성 실패 (results 모드)"; }
+
+      - name: 블로그 포스트 자동 생성 (daily_init 모드 — 오늘 예측 preview)
+        if: steps.config.outputs.MODE == 'daily_init'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: |
+          echo "📝 블로그 생성 시작 (daily_init — ${{ steps.config.outputs.RUN_DATE }})"
+          python src/generate_blog_post.py --date ${{ steps.config.outputs.RUN_DATE }} --web-repo mlb-scorecard-web \
+            && echo "✅ 블로그 생성 완료" \
+            || { echo "❌ 블로그 생성 실패 (daily_init 모드)"; }
 
       - name: 웹 레포 커밋 & 푸시 (항상)
         working-directory: mlb-scorecard-web

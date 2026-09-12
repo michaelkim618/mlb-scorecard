@@ -18,16 +18,24 @@ from pathlib import Path
 from requests_oauthlib import OAuth1
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
-API_KEY      = os.environ.get("TWITTER_API_KEY",      "5pAR1a4kJPkKdlu7tjTUj1AGW")
-API_SECRET   = os.environ.get("TWITTER_API_SECRET",   "PjpQryHOMhXfiODUPhX9NJamVBiZT6B5zCOkaZCGoJbKsBm6O6")
-ACCESS_TOKEN = os.environ.get("TWITTER_ACCESS_TOKEN", "2084157502879612928-a4vRmOkmPO2EpwtAtEuG6GiusvurMn")
-ACCESS_SECRET= os.environ.get("TWITTER_ACCESS_SECRET","P2kQ4dup1I0WRVJIsiLciIgYkv1eO07JD6zf7M7NyodYF")
+# ★ 보안: 환경변수에서만 로드. 하드코딩 기본값 금지.
+#   GitHub Actions secrets 필수: TWITTER_API_KEY / API_SECRET / ACCESS_TOKEN / ACCESS_SECRET
+API_KEY      = os.environ.get("TWITTER_API_KEY",      "")
+API_SECRET   = os.environ.get("TWITTER_API_SECRET",   "")
+ACCESS_TOKEN = os.environ.get("TWITTER_ACCESS_TOKEN", "")
+ACCESS_SECRET= os.environ.get("TWITTER_ACCESS_SECRET","")
 
 TWITTER_URL = "https://api.twitter.com/2/tweets"
 BASE_DIR    = Path(__file__).parent.parent
 DATA_DIR    = BASE_DIR / "output"
 
 def get_auth():
+    if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET]):
+        raise EnvironmentError(
+            "트위터 API 키 미설정. GitHub Secrets에 "
+            "TWITTER_API_KEY / TWITTER_API_SECRET / "
+            "TWITTER_ACCESS_TOKEN / TWITTER_ACCESS_SECRET 를 등록하세요."
+        )
     return OAuth1(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
 
 def post_tweet(text: str) -> dict:

@@ -5,14 +5,24 @@ import requests
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional, List, Dict
 
-# 미국 서부 시간 (PDT = UTC-7 / PST = UTC-8, 여름엔 PDT)
-_PDT = timezone(timedelta(hours=-7))
+# 미국 서부 시간 — DST 자동 대응 (PST=UTC-8 / PDT=UTC-7)
+# ★ 수정: 고정 UTC-7 대신 ZoneInfo 사용 → PST/PDT 자동 전환
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _LA_TZ = _ZoneInfo("America/Los_Angeles")
+except ImportError:
+    # Python 3.8 이하 fallback (고정 UTC-7, 겨울에 1시간 오차 감수)
+    _LA_TZ = None
 
 def _to_pt_str(game_date_utc: str) -> str:
-    """'2026-08-07T22:40:00Z' → '3:40 PM PT'"""
+    """'2026-08-07T22:40:00Z' → '3:40 PM PT' (DST 자동 대응)"""
     try:
         dt_utc = datetime.strptime(game_date_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        dt_pt  = dt_utc.astimezone(_PDT)
+        if _LA_TZ:
+            dt_pt = dt_utc.astimezone(_LA_TZ)
+        else:
+            # fallback: UTC-7 고정 (여름 PDT 기준, 겨울은 1시간 오차)
+            dt_pt = dt_utc.astimezone(timezone(timedelta(hours=-7)))
         return dt_pt.strftime("%-I:%M %p PT")
     except Exception:
         return ""

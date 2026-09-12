@@ -40,6 +40,12 @@ GROUP_WINDOW_MIN = 45
 TRIGGER_BEFORE_MIN = 240  # 최대 240분(4시간) 전까지 감지 (GitHub Actions 크론 최대 3h 지연 대응)
 TRIGGER_AFTER_MIN  = 40   # 최소 40분 전 (게임 직전 포스팅 방지)
 
+# 라인업 확정 최소 비율: 이 비율 이상 확정돼야 포스팅 허용
+# 0.0 = 라인업 없어도 포스팅, 1.0 = 전부 확정 시만 포스팅
+# ★ 0.0으로 설정 시 예측 모드 유지 (라인업 없이도 포스팅)
+#   경기 당일 AM에는 라인업이 늦게 발표되므로 0.0이 현실적
+LINEUP_CONFIRM_THRESHOLD = 0.0
+
 
 def get_state_file(game_date: str) -> Path:
     return STATE_DIR / f"posted_{game_date}.json"
@@ -90,8 +96,11 @@ def get_today_games(game_date: str) -> list:
 
             # Schedule API hydrate=lineups 버그 대응:
             # Live/Warmup/Final 상태이면 라인업이 이미 확정된 것으로 간주
+            # ★ 수정: Pre-Game 제거 — 경기 시작 직전이지만 실제 라인업 데이터 없을 수 있음
+            #   Pre-Game(30~60분 전) 단계에서 lineup_confirmed=True 로 과대평가하면
+            #   파이프라인이 라인업 없는 상태로 재실행 → 개선 효과 없음
             game_started = abstract_state in ("Live", "Final") or \
-                           detailed_state in ("Warmup", "Pre-Game", "In Progress", "Final")
+                           detailed_state in ("Warmup", "In Progress", "Final")
 
             lineup_confirmed = game_started or bool(
                 lineups.get("awayPlayers") and lineups.get("homePlayers")
@@ -157,19 +166,25 @@ def run_pipeline(game_date: str):
         print(f"  ✅ 파이프라인 완료")
 
 
-def run_slides(game_date: str, post_num: int):
-    """슬라이드 생성"""
+def run_slides(game_date: str, post_num: int) -> bool:
+    """슬라이드 생성 — 성공 여부 반환"""
     print(f"  🎨 슬라이드 생성 중... (#{post_num}차 포스팅)")
     result = subprocess.run(
         [sys.executable, "instagram/generate_slides_v2.py", "--date", game_date, "--post-num", str(post_num)],
         capture_output=True, text=True, cwd=str(BASE_DIR)
     )
     if result.returncode != 0:
-        print(f"  [경고] 슬라이드 오류:\n{result.stderr[-300:]}")
+        print(f"  ❌ 슬라이드 생성 실패 — 인스타 포스팅 차단:\n{result.stderr[-500:]}")
+        return False
+    print(f"  ✅ 슬라이드 생성 완료")
+    return True
 
 
-def run_instagram_post(game_date: str, post_type: str = "prediction"):
-    """인스타그램 포스팅"""
+def run_instagram_post(game_date: str, post_type: str = "prediction") -> bool:
+    """인스타그램 포스팅 — 성공 여부 반환"""
+    # prediction 포스팅: 슬라이드 먼저 생성, 실패 시 포스팅 차단
+    if post_type == "prediction":
+        post_num = 1  # 기본값 (호출부에서 덮어씌울 수 없으므로 슬라이드는 별도 호출)
     print(f"  📸 인스타그램 포스팅 중... (type={post_type})")
     env = {**os.environ}
     result = subprocess.run(
@@ -177,9 +192,10 @@ def run_instagram_post(game_date: str, post_type: str = "prediction"):
         capture_output=True, text=True, cwd=str(BASE_DIR), env=env
     )
     if result.returncode != 0:
-        print(f"  [경고] 인스타 오류:\n{result.stderr[-300:]}")
-    else:
-        print(f"  ✅ 인스타그램 포스팅 완료")
+        print(f"  ❌ 인스타 포스팅 실패:\n{result.stderr[-500:]}")
+        return False
+    print(f"  ✅ 인스타그램 포스팅 완료")
+    return True
 
 
 def run_twitter_post(game_date: str, post_type: str = "prediction"):
@@ -462,7 +478,19 @@ def check_and_post_predictions(game_date: str):
                 print(f"   🔒 포스팅 완료 시점에 예측 고정")
         else:
             print(f"   🔒 예측 고정 상태 — 파이프라인 재실행 없이 현재 예측값으로 포스팅")
-        run_instagram_post(game_date)   # 인스타그램 예측 포스팅
+
+        # 라인업 확정 상태 로깅
+        if confirmed_count == 0:
+            print(f"  ⚠️  라인업 미확정 상태로 포스팅 (경기 전 예측 기반)")
+        else:
+            print(f"  ✅ 라인업 확정 {confirmed_count}/{total_count} 상태로 포스팅")
+
+        # 슬라이드 생성 먼저 → 성공 시에만 인스타 포스팅
+        slides_ok = run_slides(game_date, post_num)
+        if slides_ok:
+            run_instagram_post(game_date)
+        else:
+            print(f"  ⚠️  슬라이드 실패로 인스타 포스팅 스킵")
 
         # 트위터 예측 트윗: 하루 1번만 (첫 포스팅 그룹에만 전송)
         if not posted_groups:  # 오늘 첫 포스팅일 때만

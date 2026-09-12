@@ -17,9 +17,15 @@ from datetime import date, datetime
 from pathlib import Path
 
 # ── CONFIG ───────────────────────────────────────────────────────────────────
-ZERNIO_API_KEY       = os.environ.get("ZERNIO_API_KEY", "sk_9904830b1af95a69b9a7824939d5c1ffd4040206eab7e954a770b1523a6a582c")
+# ★ 보안: 환경변수에서만 로드. 하드코딩 기본값 금지.
+#   GitHub Actions secrets 필수: ZERNIO_API_KEY / INSTAGRAM_ACCOUNT_ID
+ZERNIO_API_KEY       = os.environ.get("ZERNIO_API_KEY", "")
 ZERNIO_BASE_URL      = "https://zernio.com/api/v1"
-INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID", "6a7108fedf17280d9336543f")
+INSTAGRAM_ACCOUNT_ID = os.environ.get("INSTAGRAM_ACCOUNT_ID", "")
+
+if not ZERNIO_API_KEY or not INSTAGRAM_ACCOUNT_ID:
+    print("⚠️  ZERNIO_API_KEY 또는 INSTAGRAM_ACCOUNT_ID 미설정 — 인스타 포스팅 스킵")
+    sys.exit(0)
 
 HEADERS = {
     "Authorization": f"Bearer {ZERNIO_API_KEY}",
