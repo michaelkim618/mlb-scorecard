@@ -46,6 +46,9 @@ PITCHER_OVERRIDES: dict = {
         119: ("Blake Snell", 605483),  # LAD away @ MIA (API가 Wrobleski로 잘못 표시)
         109: ("Merrill Kelly", 518876),  # ARI home vs TEX (API가 E. Rodriguez로 잘못 표시)
     },
+    "2026-09-12": {
+        158: ("Kyle Harrison", 690986),  # MIL home vs CIN (API가 TBD로 표시)
+    },
 }
 
 
