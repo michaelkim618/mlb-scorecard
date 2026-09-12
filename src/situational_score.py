@@ -69,11 +69,23 @@ def situational_score(
         elif div_rank >= 4:
             score -= 4.0
 
-    # 시즌 승률 보정
+    # 시즌 승률 보정 (v2: 비선형 강화 — 격차 클수록 더 강하게 반영)
+    # ★ 2순위 개선: 승률 격차 10%↑ 팀(60%+ 또는 40%-) 은 더 강한 계수 적용
+    #   기존: 고정 계수 15.0  →  개선: 격차에 따라 15~25 동적 계수
+    #   예) SD(53.4%) vs SF(42.2%) → SF gap=-7.8% → 계수 20 → 기존 -1.17pt에서 -1.56pt로 강화
+    #   예) 팀 승률 60%↑ vs 40%- 대결: 계수 25 → 더 강한 격차 반영
     if wins is not None and losses is not None:
         total = wins + losses
         if total > 0:
             wpct = wins / total
-            score += (wpct - 0.500) * 15.0
+            gap = wpct - 0.500
+            abs_gap = abs(gap)
+            if abs_gap >= 0.100:      # 60%↑ 또는 40%↓ — 확연한 강팀/약팀
+                coeff = 25.0
+            elif abs_gap >= 0.060:    # 56~60% 또는 40~44% — 뚜렷한 차이
+                coeff = 20.0
+            else:                     # ±6% 이내 — 중간 팀 (기존 동일)
+                coeff = 15.0
+            score += gap * coeff
 
     return round(max(0.0, min(100.0, score)), 1)

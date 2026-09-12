@@ -350,6 +350,19 @@ def pitcher_score(stats: dict, season_era: float = None,
     # ERA 데이터 자체가 없는 경우 → 신뢰도를 0.5로 강제 낮춤 (불확실성 반영)
     if era_is_unknown:
         conf = min(conf, 0.5)
+
+    # ★ 1순위 개선 (v14): 시즌 결정수(승+패) 소샘플 → 신뢰도 상한 추가 제한
+    #   n_games(최근 등판수)는 올해 시즌 총 결정수(wins+losses)와 독립적으로 관리
+    #   → 시즌 결정수 8개 미만이면 conf 상한을 (결정수/8)로 제한
+    #   예) Molina 3-0 (3결정): conf_max = 3/8 = 0.375
+    #       기존 conf=0.6 → min(0.6, 0.375) = 0.375 → raw_score 반영 비중 감소
+    #   예) Springs 4-13 (17결정): conf_max = 1.0 → 기존 conf 유지
+    if season_wins is not None and season_losses is not None:
+        _total_decisions = season_wins + season_losses
+        if _total_decisions < 8:
+            _conf_max = _total_decisions / 8.0   # 0결정→0.0, 7결정→0.875
+            conf = min(conf, _conf_max)
+
     score = raw_score * conf + LEAGUE_AVG * (1.0 - conf)
 
     # 트렌드 보정
@@ -485,17 +498,32 @@ def pitcher_score(stats: dict, season_era: float = None,
             elif win_pct <= 0.48:
                 score = max(0.0, score - 1.0)     # 근소 서브-.500 (예: 6-7, 7-8)
 
-    # ── 시즌 ERA 하한선 ─────────────────────────────────────────────
+    # ── 시즌 ERA 하한선 (소샘플 보정 포함) ──────────────────────────
     # 최근 성적이 나빠도 시즌 누적 ERA가 양호하면 최소 점수 보장
     # (hot streak 종료 후 bounce-back 가능성 반영)
+    #
+    # ★ 1순위 개선 (v14): 소샘플 투수 시즌 ERA 블렌딩
+    #   결정(승+패) 8개 미만 → 시즌 ERA를 리그 평균(4.50)과 블렌딩 후 floor 산정
+    #   예) Molina 3-0 ERA 2.79 → blend_w=0.375 → effective_ERA = 2.79×0.375 + 4.50×0.625 = 3.86
+    #   → floor 48pt(에이스급) 대신 36pt(평균 이상) 적용 → 소샘플 과대평가 방지
     if season_era is not None:
-        if season_era <= 3.00:
+        _effective_season_era = season_era
+        if season_wins is not None and season_losses is not None:
+            _total_d = season_wins + season_losses
+            if _total_d < 8:
+                _blend_w = _total_d / 8.0   # 0결정→0.0, 7결정→0.875
+                _effective_season_era = season_era * _blend_w + 4.50 * (1 - _blend_w)
+                import sys as _sys
+                print(f"      [소샘플ERA보정] 결정수 {_total_d}개 → season ERA {season_era} × {_blend_w:.3f} + 4.50 × {1-_blend_w:.3f} = {_effective_season_era:.2f}",
+                      file=_sys.stdout)
+
+        if _effective_season_era <= 3.00:
             score = max(score, 48.0)   # 에이스급: 최소 48점
-        elif season_era <= 3.50:
+        elif _effective_season_era <= 3.50:
             score = max(score, 42.0)   # 우수: 최소 42점
-        elif season_era <= 4.00:
+        elif _effective_season_era <= 4.00:
             score = max(score, 36.0)   # 평균 이상: 최소 36점
-        elif season_era <= 4.50:
+        elif _effective_season_era <= 4.50:
             score = max(score, 32.0)   # 리그 평균: 최소 32점
 
     # ── 최종 범위 압축: 30~72점 ──────────────────────────────────────
