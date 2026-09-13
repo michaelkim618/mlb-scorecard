@@ -240,6 +240,47 @@ FROZEN_FIELDS = [
     "low_confidence", "low_confidence_reason", "extreme_edge",
 ]
 
+def patch_lineup_confirmed(game_date: str, games: list):
+    """
+    predictions.json의 lineup_confirmed를 API 상태와 직접 동기화.
+    ─────────────────────────────────────────────────────────────────
+    기존 sync check(파이프라인 재실행)와는 달리 predictions.json의
+    lineup_confirmed 필드만 직접 패치한다. 매우 가볍고 항상 안전하다.
+
+    호출 시점: check_and_post_predictions 맨 끝 (항상 실행)
+    효과: Live/Final 경기는 무조건 lineup_confirmed=True 로 반영됨.
+    """
+    pred_path = OUTPUT_DIR / "predictions.json"
+    if not pred_path.exists():
+        return
+
+    # API에서 lineup_confirmed=True 인 경기의 gamePk 집합
+    live_pks = {str(g["gamePk"]) for g in games if g.get("lineup_confirmed")}
+    if not live_pks:
+        return
+
+    try:
+        preds = json.loads(pred_path.read_text(encoding="utf-8"))
+        preds_list = preds.get("games", []) if isinstance(preds, dict) else preds
+
+        updated = 0
+        for p in preds_list:
+            if str(p.get("game_pk", "")) in live_pks and not p.get("lineup_confirmed"):
+                p["lineup_confirmed"] = True
+                updated += 1
+
+        if updated:
+            # predictions.json 직접 갱신
+            out = json.dumps(preds_list, indent=2, ensure_ascii=False)
+            pred_path.write_text(out, encoding="utf-8")
+            # 웹 레포에도 즉시 반영
+            copy_predictions_to_web(game_date)
+            print(f"\n🟢 lineup_confirmed 직접 패치: {updated}경기 → True (Live/Final 상태 반영)")
+        # else: 이미 모두 True — 패치 불필요
+    except Exception as e:
+        print(f"  ⚠️  lineup_confirmed 패치 오류: {e}")
+
+
 def save_frozen_predictions(game_date: str, state: dict, frozen_group_key: str, group_games: list):
     """
     그룹이 frozen될 때 해당 그룹 경기들의 핵심 예측값을 state에 스냅샷 저장.
@@ -511,9 +552,9 @@ def check_and_post_predictions(game_date: str):
         if not lineup_refreshed:
             print("\n✅ 지금 포스팅할 그룹 없음.")
 
-    # ── Live/Final 경기 lineup_confirmed 자동 동기화 ──────────────────────────
-    # 포스팅·갱신이 없더라도 경기가 Live/Final로 전환됐으면 predictions.json 갱신
-    # (포스팅 완료·고정 후에도 30분마다 status 동기화 보장)
+    # ── Live/Final 경기 lineup_confirmed 자동 동기화 (파이프라인 재실행) ─────────
+    # 기존 로직 유지: 파이프라인 재실행이 필요한 경우 (라인업 데이터 갱신 포함)
+    # lineup_refreshed=True이면 이미 파이프라인이 실행됐으므로 중복 방지
     if not lineup_refreshed:
         pred_path = OUTPUT_DIR / "predictions.json"
         if pred_path.exists():
@@ -544,6 +585,13 @@ def check_and_post_predictions(game_date: str):
                     print("   ✅ lineup_confirmed 동기화 완료")
             except Exception as _sync_e:
                 print(f"  ⚠️ 동기화 체크 오류: {_sync_e}")
+
+    # ── 최종 안전망: lineup_confirmed 직접 패치 (항상 실행) ─────────────────
+    # 위 모든 로직과 독립적으로 항상 실행.
+    # 파이프라인 실행 여부·그룹 상태·frozen 여부와 무관하게
+    # Live/Final 경기는 무조건 lineup_confirmed=True 로 보정.
+    # 가볍고(파이프라인 재실행 없음) 안전하며 반복 실행해도 부작용 없음.
+    patch_lineup_confirmed(game_date, games)
 
 
 def check_and_post_results(game_date: str):
