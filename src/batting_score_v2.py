@@ -150,8 +150,22 @@ def batting_score(stats: dict) -> float:
              rpg_s  * 0.25 +
              hr_s   * 0.10)
 
-    # 최근 5경기 트렌드 보정 (OR 조건, ±2pt)
-    if trend == "hot":
+    # 최근 5경기 트렌드 보정 (v2: last5_rpg 강도 기반 가변 보정)
+    # hot: last5_rpg가 시즌 평균 대비 얼마나 높은지에 따라 +2~+5pt
+    # cold: 고정 -2pt (하방 리스크는 보수적 유지)
+    last5_rpg = stats.get("last5_rpg")
+    if trend == "hot" and last5_rpg is not None and rpg > 0:
+        ratio = last5_rpg / rpg  # e.g., 9.4 / 4.3 ≈ 2.19
+        if ratio >= 1.80:        # 80%+ 폭발 → +5pt
+            bonus = 5.0
+        elif ratio >= 1.50:      # 50%+ 강세 → +4pt
+            bonus = 4.0
+        elif ratio >= 1.20:      # 20%+ 상승 → +3pt (기존 기준)
+            bonus = 3.0
+        else:
+            bonus = 2.0          # 기본 hot 보정
+        score = min(100.0, score + bonus)
+    elif trend == "hot":
         score = min(100.0, score + 2.0)
     elif trend == "cold":
         score = max(0.0,   score - 2.0)

@@ -624,13 +624,19 @@ def run(game_date: Optional[str] = None) -> list:
                             {"away_penalty": 0.0, "home_penalty": 0.0,
                              "away_detail": [], "home_detail": []}, "부상페널티")
         if inj_penalty["away_penalty"] > 0:
-            n_away_inj = len(inj_penalty["away_detail"])
             away_bat_s = max(0.0, away_bat_s - inj_penalty["away_penalty"])
-            print(f"    [부상페널티] {away_name} 타자주전 {n_away_inj}명 → 타선 -{inj_penalty['away_penalty']}pt")
+            _away_inj_str = ", ".join(
+                f"{p['name']}(OPS {p.get('ops', '?')}, -{p.get('penalty_contribution', '?')}pt)"
+                for p in inj_penalty["away_detail"]
+            )
+            print(f"    [부상페널티] {away_name} 타자 IL: {_away_inj_str} → 타선 합계 -{inj_penalty['away_penalty']}pt")
         if inj_penalty["home_penalty"] > 0:
-            n_home_inj = len(inj_penalty["home_detail"])
             home_bat_s = max(0.0, home_bat_s - inj_penalty["home_penalty"])
-            print(f"    [부상페널티] {home_name} 타자주전 {n_home_inj}명 → 타선 -{inj_penalty['home_penalty']}pt")
+            _home_inj_str = ", ".join(
+                f"{p['name']}(OPS {p.get('ops', '?')}, -{p.get('penalty_contribution', '?')}pt)"
+                for p in inj_penalty["home_detail"]
+            )
+            print(f"    [부상페널티] {home_name} 타자 IL: {_home_inj_str} → 타선 합계 -{inj_penalty['home_penalty']}pt")
 
         # ── 3.7 타선 점수 하한선 보정 (방법 C: 시즌 블렌딩 + 순위 티어 플로어) ──
         # 최근 10경기 슬럼프로 타선이 극단적으로 낮게 계산될 때 보정
@@ -1176,12 +1182,26 @@ def run(game_date: Optional[str] = None) -> list:
                   f"BAT우위={bat_favors}({bat_gap:+.1f}pt) → 예측 신뢰도 주의")
 
         # ── 🔍 예측 신뢰도 판정 ──────────────────────────────────────────
-        # SP 점수 차이 5pt 이하 → 선발 동급 → 예측 불확실
-        SP_CONFIDENCE_THRESHOLD = 5.0
+        # 조건 1: SP 점수 차이 5pt 이하 → 선발 동급 → 예측 불확실
+        # 조건 2: 최종 승리 확률 55% 이하 → 박빙 경기 → 예측 불확실
+        SP_CONFIDENCE_THRESHOLD   = 5.0
+        PROB_CONFIDENCE_THRESHOLD = 55.0   # 이 확률 이하면 low_confidence
         sp_score_gap = abs(away_sp_s - home_sp_s)
-        low_confidence = (sp_score_gap <= SP_CONFIDENCE_THRESHOLD)
-        if low_confidence:
+        top_prob     = max(away_win_pct, home_win_pct)
+
+        lc_sp_gap  = (sp_score_gap <= SP_CONFIDENCE_THRESHOLD)
+        lc_prob    = (top_prob <= PROB_CONFIDENCE_THRESHOLD)
+        low_confidence = lc_sp_gap or lc_prob
+
+        if lc_sp_gap:
             print(f"    [🔍 신뢰도낮음] SP 점수 차이 {sp_score_gap:.1f}pt ≤ {SP_CONFIDENCE_THRESHOLD}pt → 선발 동급, 예측 불확실")
+        if lc_prob:
+            print(f"    [🔍 신뢰도낮음] 최고 확률 {top_prob:.1f}% ≤ {PROB_CONFIDENCE_THRESHOLD}% → 박빙 경기, 예측 불확실")
+
+        # low_confidence 이유 문자열 생성
+        lc_reasons = []
+        if lc_sp_gap: lc_reasons.append(f"SP 점수 차이 {sp_score_gap:.1f}pt (≤{SP_CONFIDENCE_THRESHOLD}pt)")
+        if lc_prob:   lc_reasons.append(f"최고 확률 {top_prob:.1f}% (≤{PROB_CONFIDENCE_THRESHOLD}%)")
 
         # ── 10. Kalshi + Value Bet ─────────────────────────────────────
         # 고위험 경기 판정: 양 팀 선발 ERA 모두 BOTH_SP_HIGH_ERA_THRESHOLD 이상
@@ -1573,7 +1593,7 @@ def run(game_date: Optional[str] = None) -> list:
                 "bat_gap":    round(bat_gap, 1),
             } if sp_bat_conflict else None,
             "low_confidence": low_confidence,
-            "low_confidence_reason": f"SP 점수 차이 {sp_score_gap:.1f}pt (≤{SP_CONFIDENCE_THRESHOLD}pt)" if low_confidence else None,
+            "low_confidence_reason": " / ".join(lc_reasons) if low_confidence else None,
             "model_version": MODEL_VERSION,
         })
 

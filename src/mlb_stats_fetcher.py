@@ -602,7 +602,7 @@ def get_injured_players(team_id: int) -> list[str]:
 
 def get_injured_players_detail(team_id: int) -> list[dict]:
     """현재 부상자 명단 (상세 정보 포함).
-    반환 형태: [{"name": str, "position": str, "status": str}, ...]
+    반환 형태: [{"name": str, "player_id": int, "position": str, "status": str}, ...]
     position은 position.type (예: "Infielder", "Outfielder", "Pitcher" 등)
     """
     data = _get(f"{BASE}/teams/{team_id}/roster", {
@@ -615,11 +615,31 @@ def get_injured_players_detail(team_id: int) -> list[dict]:
         if "Injured" in desc or "IL" in desc:
             pos_type = p.get("position", {}).get("type", "Unknown")
             injured.append({
-                "name":     p["person"]["fullName"],
-                "position": pos_type,
-                "status":   desc,
+                "name":      p["person"]["fullName"],
+                "player_id": p["person"].get("id"),
+                "position":  pos_type,
+                "status":    desc,
             })
     return injured
+
+
+def get_player_season_ops(player_id: int) -> float:
+    """선수 시즌 OPS 조회. 실패 시 리그 평균(0.720) 반환."""
+    try:
+        data = _get(f"{BASE}/people/{player_id}/stats", {
+            "stats": "season",
+            "group": "hitting",
+            "season": SEASON,
+        })
+        splits = data.get("stats", [{}])[0].get("splits", [])
+        if splits:
+            stat = splits[0].get("stat", {})
+            ops_val = stat.get("ops")
+            if ops_val is not None:
+                return float(ops_val)
+    except Exception:
+        pass
+    return 0.720  # 리그 평균 fallback
 
 
 # ─── 유틸 ────────────────────────────────────────────────────────────
