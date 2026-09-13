@@ -1185,7 +1185,7 @@ def run(game_date: Optional[str] = None) -> list:
         # 조건 1: SP 점수 차이 5pt 이하 → 선발 동급 → 예측 불확실
         # 조건 2: 최종 승리 확률 55% 이하 → 박빙 경기 → 예측 불확실
         SP_CONFIDENCE_THRESHOLD   = 5.0
-        PROB_CONFIDENCE_THRESHOLD = 55.0   # 이 확률 이하면 low_confidence
+        PROB_CONFIDENCE_THRESHOLD = 58.0   # 이 확률 이하면 low_confidence (v2: 55→58%)
         sp_score_gap = abs(away_sp_s - home_sp_s)
         top_prob     = max(away_win_pct, home_win_pct)
 
