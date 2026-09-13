@@ -375,6 +375,76 @@ jobs:
             && echo "✅ 블로그 생성 완료" \
             || { echo "❌ 블로그 생성 실패 (daily_init 모드)"; }
 
+      # ── 최종 안전망: lineup_confirmed 강제 동기화 (커밋 직전, 항상 실행) ──
+      # Python 코드(check_and_post.py)의 patch_lineup_confirmed()와 독립적으로 동작.
+      # 파이프라인 오류·백업 실패·타이밍 문제 등 어떤 이유로도 stale 데이터가
+      # 커밋되지 않도록 MLB API를 직접 조회해 predictions.json을 패치한다.
+      - name: lineup_confirmed 최종 동기화 (커밋 직전 — 항상 실행)
+        run: |
+          python3 - <<'PYEOF'
+          import requests, json, sys
+          from pathlib import Path
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          PST   = ZoneInfo("America/Los_Angeles")
+          TODAY = datetime.now(PST).strftime("%Y-%m-%d")
+          PRED  = Path("mlb-scorecard-web/public/predictions.json")
+
+          if not PRED.exists():
+              print("⚠️  predictions.json 없음 — 스킵")
+              sys.exit(0)
+
+          # MLB API에서 오늘 경기 상태 조회
+          try:
+              resp = requests.get(
+                  "https://statsapi.mlb.com/api/v1/schedule",
+                  params={"sportId": 1, "date": TODAY, "hydrate": "lineups"},
+                  timeout=15,
+              )
+              resp.raise_for_status()
+              data = resp.json()
+          except Exception as e:
+              print(f"⚠️  MLB API 오류: {e} — 스킵")
+              sys.exit(0)
+
+          # 라인업 확정 경기의 gamePk 수집
+          live_pks = set()
+          for db in data.get("dates", []):
+              for g in db.get("games", []):
+                  if g.get("gameType") != "R":
+                      continue
+                  state   = g["status"]["abstractGameState"]
+                  detail  = g["status"].get("detailedState", "")
+                  lineups = g.get("lineups", {})
+                  if (state in ("Live", "Final")
+                          or detail in ("Warmup", "In Progress", "Final")
+                          or (lineups.get("awayPlayers") and lineups.get("homePlayers"))):
+                      live_pks.add(str(g["gamePk"]))
+
+          print(f"MLB API 확인: 라인업 확정 {len(live_pks)}경기")
+          if not live_pks:
+              print("ℹ️  확정 경기 없음 — 스킵")
+              sys.exit(0)
+
+          # predictions.json 패치
+          preds = json.loads(PRED.read_text(encoding="utf-8"))
+          preds_list = preds.get("games", []) if isinstance(preds, dict) else preds
+
+          updated = 0
+          for p in preds_list:
+              if str(p.get("game_pk", "")) in live_pks and not p.get("lineup_confirmed"):
+                  p["lineup_confirmed"] = True
+                  updated += 1
+
+          if updated:
+              out = json.dumps(preds_list, indent=2, ensure_ascii=False)
+              PRED.write_text(out, encoding="utf-8")
+              print(f"✅ lineup_confirmed 패치 완료: {updated}경기 → True")
+          else:
+              print("✅ 모든 확정 경기 이미 lineup_confirmed=True — 패치 불필요")
+          PYEOF
+
       - name: 웹 레포 커밋 & 푸시 (항상)
         working-directory: mlb-scorecard-web
         run: |
