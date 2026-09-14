@@ -698,15 +698,31 @@ let dateList = [];
 let selectedDate = null;
 let currentFilter = 'all';
 
-const DATA_URL = 'season_results.json';
+const DATA_URL_PRIMARY  = 'season_results.json';
+const DATA_URL_FALLBACK = 'https://raw.githubusercontent.com/michaelkim618/mlb-scorecard-web/main/public/season_results.json';
 
 // ════════════════════════════════════════
 //  초기 로드
 // ════════════════════════════════════════
+async function fetchData() {
+  // file:// 환경(프리뷰)이거나 상대경로 fetch가 불가능한 경우 GitHub Raw로 폴백
+  if (location.protocol === 'file:') {
+    const res = await fetch(DATA_URL_FALLBACK + '?t=' + Date.now());
+    return res.json();
+  }
+  try {
+    const res = await fetch(DATA_URL_PRIMARY + '?t=' + Date.now());
+    if (!res.ok) throw new Error('primary failed');
+    return res.json();
+  } catch {
+    const res = await fetch(DATA_URL_FALLBACK + '?t=' + Date.now());
+    return res.json();
+  }
+}
+
 async function init() {
   try {
-    const res  = await fetch(DATA_URL + '?t=' + Date.now());
-    const data = await res.json();
+    const data = await fetchData();
     allGames   = data.games || [];
     buildByDate();
     renderSeasonSummary();
