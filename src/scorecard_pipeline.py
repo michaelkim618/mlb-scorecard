@@ -885,6 +885,7 @@ def run(game_date: Optional[str] = None) -> list:
             away_sit=away_sit_s, home_sit=home_sit_s,
             sp_w=eff_sp_w, bp_w=eff_bp_w, bat_w=eff_bat_w, sit_w=eff_sit_w,
             home_bonus=HOME_BONUS, sigmoid_k=SIG_K,
+            away_sp_era=away_sp_era, home_sp_era=home_sp_era,
         )
         away_win_pct = sc["away_win_pct"]
         home_win_pct = sc["home_win_pct"]
@@ -1108,6 +1109,23 @@ def run(game_date: Optional[str] = None) -> list:
             home_win_pct = effective_cap
             away_win_pct = round(100.0 - home_win_pct, 1)
             print(f"    [하드캡] {home_name} {home_win_pct}%로 제한 ({cap_label})")
+
+        # ── 8.6 SP ERA Gate: ERA > 5.5 + Cold → 해당 팀 win_pct 55% 상한 ──────
+        # 선발 ERA가 높고 컨디션 Cold 트렌드이면 모델이 해당 팀을 과신하는 경향 억제
+        SP_ERA_GATE_THRESHOLD = 5.5
+        SP_ERA_GATE_CAP       = 55.0
+        if away_trend == "cold" and away_sp_era >= SP_ERA_GATE_THRESHOLD:
+            if away_win_pct > SP_ERA_GATE_CAP:
+                _away_sp_name = g.get("away_pitcher", away_name) if hasattr(g, "get") else away_name
+                print(f"    [🚨 SP ERA Gate] {_away_sp_name} ERA {away_sp_era:.2f} + Cold → {away_name} {away_win_pct}%→{SP_ERA_GATE_CAP}% 상한")
+                away_win_pct = SP_ERA_GATE_CAP
+                home_win_pct = round(100.0 - away_win_pct, 1)
+        if home_trend == "cold" and home_sp_era >= SP_ERA_GATE_THRESHOLD:
+            if home_win_pct > SP_ERA_GATE_CAP:
+                _home_sp_name = g.get("home_pitcher", home_name) if hasattr(g, "get") else home_name
+                print(f"    [🚨 SP ERA Gate] {_home_sp_name} ERA {home_sp_era:.2f} + Cold → {home_name} {home_win_pct}%→{SP_ERA_GATE_CAP}% 상한")
+                home_win_pct = SP_ERA_GATE_CAP
+                away_win_pct = round(100.0 - home_win_pct, 1)
 
         # ── 8.5 Cold SP 불펜 안전망 보정 (아이디어 B) ────────────────
         # Cold SP 팀은 조기 강판 후 불펜이 경기를 지배 → 수비력 계산 시 불펜 비중 상향
@@ -1630,3 +1648,4 @@ if __name__ == "__main__":
     import sys as _sys
     d = _sys.argv[1] if len(_sys.argv) > 1 else None
     run(d)
+
