@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MLB 예측 히스토리 | MLB Scorecard</title>
+<style>
+:root {
+  --bg:          #f0f4f8;
+  --bg2:         #ffffff;
+  --card:        #ffffff;
+  --card-border: #d1dbe8;
+  --card-hover:  #f7fafc;
+  --text:        #1e293b;
+  --text-sub:    #475569;
+  --muted:       #94a3b8;
+  --accent:      #2563eb;
+  --accent-dim:  #dbeafe;
+  --green:       #16a34a;
+  --green-dim:   #bbf7d0;
+  --green-bg:    #f0fdf4;
+  --red:         #dc2626;
+  --red-dim:     #fecaca;
+  --red-bg:      #fff1f2;
+  --yellow:      #d97706;
+  --yellow-dim:  #fde68a;
+  --border-line: 1px solid #d1dbe8;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── 헤더 ── */
+header {
+  background: var(--bg2);
+  border-bottom: var(--border-line);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+}
+.logo { font-size: 28px; }
+header h1 { font-size: 18px; font-weight: 700; color: var(--text); }
+header .sub { color: var(--muted); font-size: 11px; margin-top: 1px; }
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: var(--border-line);
+  color: var(--text-sub);
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.back-btn:hover { background: var(--card); border-color: var(--accent); color: var(--accent); }
+
+/* ── 시즌 요약 바 ── */
+.season-summary {
+  background: var(--bg2);
+  border-bottom: var(--border-line);
+  padding: 16px 24px;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.stat-pill {
+  background: var(--card);
+  border: var(--border-line);
+  border-radius: 12px;
+  padding: 12px 18px;
+  min-width: 120px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.stat-pill .s-val { font-size: 24px; font-weight: 800; line-height: 1.2; }
+.stat-pill .s-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.pill-green .s-val { color: var(--green); }
+.pill-blue  .s-val { color: var(--accent); }
+.pill-yellow .s-val { color: var(--yellow); }
+
+/* ── 정확도 트렌드 차트 ── */
+.trend-section {
+  background: var(--bg2);
+  border-bottom: var(--border-line);
+  padding: 20px 24px;
+}
+.trend-section h2 {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.trend-chart-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.trend-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  min-width: 600px;
+  height: 100px;
+  padding: 0 4px;
+}
+.trend-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 22px;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.trend-bar-wrap:hover { opacity: .8; }
+.trend-bar-wrap.selected .trend-bar { outline: 2px solid var(--accent); outline-offset: 1px; }
+.trend-bar {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  min-height: 4px;
+  transition: all .3s ease;
+}
+.trend-bar.bar-high   { background: linear-gradient(180deg, #22c55e, #16a34a); }
+.trend-bar.bar-mid    { background: linear-gradient(180deg, #fbbf24, #d97706); }
+.trend-bar.bar-low    { background: linear-gradient(180deg, #f87171, #dc2626); }
+.trend-label {
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  height: 36px;
+  display: flex;
+  align-items: center;
+}
+.trend-pct {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-sub);
+}
+
+/* ── 메인 레이아웃 ── */
+.main-wrap {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+  min-height: calc(100vh - 220px);
+}
+
+/* ── 날짜 사이드바 ── */
+.date-sidebar {
+  background: var(--bg2);
+  border-right: var(--border-line);
+  overflow-y: auto;
+  max-height: calc(100vh - 220px);
+  position: sticky;
+  top: 0;
+}
+.sidebar-header {
+  padding: 14px 16px 10px;
+  border-bottom: var(--border-line);
+  position: sticky;
+  top: 0;
+  background: var(--bg2);
+  z-index: 10;
+}
+.sidebar-header input {
+  width: 100%;
+  background: var(--bg);
+  border: var(--border-line);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  outline: none;
+  transition: border-color .15s;
+}
+.sidebar-header input:focus { border-color: var(--accent); }
+
+.month-group { border-bottom: var(--border-line); }
+.month-label {
+  padding: 10px 16px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  background: var(--bg);
+}
+.date-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background .1s;
+  user-select: none;
+}
+.date-item:hover { background: var(--card-hover); }
+.date-item.active {
+  background: var(--accent-dim);
+  border-left: 3px solid var(--accent);
+}
+.date-item.active .di-date { color: var(--accent); }
+.di-date {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  min-width: 80px;
+}
+.di-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-left: auto;
+}
+.di-acc {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+.di-acc.high { color: var(--green); }
+.di-acc.mid  { color: var(--yellow); }
+.di-acc.low  { color: var(--red); }
+.di-count {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.di-bar {
+  width: 48px;
+  height: 4px;
+  background: var(--bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.di-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+/* ── 경기 목록 패널 ── */
+.games-panel {
+  padding: 20px 24px 48px;
+  overflow-y: auto;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.panel-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text);
+}
+.panel-date-acc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.day-stat-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card);
+  border: var(--border-line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-sub);
+}
+.day-stat-pill .ds-val {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.flt-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: var(--border-line);
+  background: var(--card);
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.flt-btn:hover { border-color: var(--accent); color: var(--accent); }
+.flt-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── 경기 카드 (히스토리용 compact) ── */
+.game-row {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  transition: transform .12s, box-shadow .12s;
+}
+.game-row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 24px rgba(0,0,0,.08);
+}
+.game-row.is-hit  { border-left: 4px solid var(--green); }
+.game-row.is-miss { border-left: 4px solid var(--red); }
+.game-row.is-pending { border-left: 4px solid var(--muted); }
+
+.gr-header {
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gr-teams {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gr-team {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+}
+.gr-vs {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,.5);
+}
+.gr-status {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.gs-final   { background: rgba(255,255,255,.15); color: #fff; }
+.gs-dh      { background: #7c3aed22; color: #c4b5fd; border: 1px solid #7c3aed55; }
+
+.gr-body {
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+@media (max-width: 640px) {
+  .gr-body { grid-template-columns: 1fr 1fr; }
+}
+
+.gr-section-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 3px;
+}
+
+/* 예측 픽 */
+.gr-pick-team {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-pick-prob {
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  color: var(--text);
+}
+.gr-pick-prob sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* 확률 바 */
+.gr-prob-bar {
+  display: flex;
+  height: 20px;
+  border-radius: 5px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 700;
+}
+.gr-prob-away {
+  background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  transition: width .4s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.gr-prob-home {
+  background: linear-gradient(90deg, #16a34a, #22c55e);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  transition: width .4s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.gr-prob-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.gr-prob-labels .away-lbl { color: #93c5fd; font-weight: 600; }
+.gr-prob-labels .home-lbl { color: #86efac; font-weight: 600; }
+
+/* 실제 결과 */
+.gr-result-winner {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--green);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gr-result-score {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.gr-result-pending {
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* 판정 */
+.gr-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+.verdict-badge {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 4px 14px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.vb-hit  { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-dim); }
+.vb-miss { background: var(--red-bg);   color: var(--red);   border: 1px solid var(--red-dim); }
+.vb-pend { background: var(--bg); color: var(--muted); border: var(--border-line); }
+.high-conf-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #fef9c3;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  white-space: nowrap;
+}
+.low-conf-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #f5f3ff;
+  color: #6d28d9;
+  border: 1px solid #c4b5fd;
+  white-space: nowrap;
+}
+
+/* ── 스코어카드 미니 바 ── */
+.gr-scorecards {
+  padding: 0 16px 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 20px;
+  border-top: var(--border-line);
+  margin-top: 2px;
+  padding-top: 10px;
+}
+.sc-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.sc-mini-label {
+  width: 28px;
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 9px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.sc-mini-track {
+  flex: 1;
+  height: 5px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.sc-mini-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+.scf-sp   { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+.scf-bp   { background: linear-gradient(90deg, #0891b2, #22d3ee); }
+.scf-bat  { background: linear-gradient(90deg, #d97706, #fbbf24); }
+.sc-mini-val {
+  width: 26px;
+  text-align: right;
+  font-weight: 700;
+  color: var(--text);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.sc-mini-team {
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 26px;
+}
+
+/* ── 빈 상태 ── */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--muted);
+}
+.empty-state .emo { font-size: 40px; margin-bottom: 12px; }
+.empty-state p { font-size: 15px; }
+
+/* ── 로딩 ── */
+.loading-wrap {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 24px; height: 24px;
+  border: 3px solid var(--card-border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  margin-bottom: 12px;
+}
+
+/* ── 반응형 ── */
+@media (max-width: 860px) {
+  .main-wrap { grid-template-columns: 1fr; }
+  .date-sidebar {
+    max-height: 220px;
+    position: static;
+    border-right: none;
+    border-bottom: var(--border-line);
+  }
+  .trend-chart { min-width: 400px; }
+  header { padding: 12px 16px; }
+  .season-summary { padding: 14px 16px; }
+  .games-panel { padding: 16px 14px 48px; }
+}
+@media (max-width: 540px) {
+  header h1 { font-size: 15px; }
+  .stat-pill { min-width: 90px; padding: 10px 12px; }
+  .gr-body { grid-template-columns: 1fr 1fr; gap: 8px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── 헤더 ── -->
+<header>
+  <span class="logo">⚾</span>
+  <div>
+    <h1>MLB 예측 히스토리</h1>
+    <div class="sub">시즌 전체 예측 기록 · 날짜별 경기 결과 아카이브</div>
+  </div>
+  <div class="header-right">
+    <a href="dashboard.html" class="back-btn">← 대시보드</a>
+  </div>
+</header>
+
+<!-- ── 시즌 요약 ── -->
+<div class="season-summary" id="season-summary">
+  <div style="color:var(--muted);font-size:13px;">시즌 데이터 로딩 중…</div>
+</div>
+
+<!-- ── 정확도 트렌드 차트 ── -->
+<div class="trend-section">
+  <h2>📈 일자별 정확도 트렌드</h2>
+  <div class="trend-chart-wrap">
+    <div class="trend-chart" id="trend-chart">
+      <div class="loading-wrap" style="padding:20px;width:100%">
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── 메인: 사이드바 + 경기 목록 ── -->
+<div class="main-wrap">
+
+  <!-- 날짜 사이드바 -->
+  <div class="date-sidebar" id="date-sidebar">
+    <div class="sidebar-header">
+      <input type="text" id="date-search" placeholder="날짜 검색 (예: 08-15)" oninput="filterDates(this.value)">
+    </div>
+    <div id="date-list">
+      <div class="loading-wrap" style="padding:30px 16px;">
+        <div class="spinner"></div>
+        <div style="margin-top:8px;font-size:12px;">데이터 로딩 중…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 경기 목록 패널 -->
+  <div class="games-panel" id="games-panel">
+    <div class="empty-state" id="panel-empty">
+      <div class="emo">📅</div>
+      <p>왼쪽에서 날짜를 선택하면<br>해당 날의 경기 기록을 볼 수 있어요.</p>
+    </div>
+    <div id="panel-content" style="display:none">
+      <div class="panel-header">
+        <div class="panel-title" id="panel-title">—</div>
+        <div class="panel-date-acc" id="panel-stats"></div>
+      </div>
+      <div class="filter-bar">
+        <button class="flt-btn active" onclick="setFilter('all',this)">전체</button>
+        <button class="flt-btn" onclick="setFilter('hit',this)">✅ 적중</button>
+        <button class="flt-btn" onclick="setFilter('miss',this)">❌ 미스</button>
+        <button class="flt-btn" onclick="setFilter('high',this)">⭐ 고신뢰</button>
+      </div>
+      <div id="games-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ════════════════════════════════════════
+//  데이터 & 상태
+// ════════════════════════════════════════
+let allGames = [];
+let byDate   = {};
+let dateList = [];
+let selectedDate = null;
+let currentFilter = 'all';
+
+const DATA_URL = 'season_results.json';
+
+// ════════════════════════════════════════
+//  초기 로드
+// ════════════════════════════════════════
+async function init() {
+  try {
+    const res  = await fetch(DATA_URL + '?t=' + Date.now());
+    const data = await res.json();
+    allGames   = data.games || [];
+    buildByDate();
+    renderSeasonSummary();
+    renderTrendChart();
+    renderDateSidebar();
+    // URL 파라미터로 날짜 지정 가능
+    const urlDate = new URLSearchParams(location.search).get('date');
+    if (urlDate && byDate[urlDate]) selectDate(urlDate);
+    else if (dateList.length) selectDate(dateList[dateList.length - 1]);
+  } catch(e) {
+    document.getElementById('season-summary').innerHTML =
+      `<div style="color:var(--red);font-size:13px;">❌ 데이터 로드 실패: ${e.message}</div>`;
+  }
+}
+
+function buildByDate() {
+  byDate = {};
+  allGames.forEach(g => {
+    const d = g.date;
+    if (!d) return;
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(g);
+  });
+  dateList = Object.keys(byDate).sort();
+}
+
+// ════════════════════════════════════════
+//  날짜별 통계 계산
+// ════════════════════════════════════════
+function calcStats(games) {
+  const confirmed = games.filter(g => g.actual_winner);
+  const hits   = confirmed.filter(g => g.correct).length;
+  const total  = confirmed.length;
+  const pct    = total ? Math.round(hits / total * 100) : null;
+  const highConf = confirmed.filter(g => g.high_conf);
+  const hcHits   = highConf.filter(g => g.correct).length;
+  return { hits, total, pct, highConf: highConf.length, hcHits, pending: games.length - total };
+}
+
+// ════════════════════════════════════════
+//  시즌 요약
+// ════════════════════════════════════════
+function renderSeasonSummary() {
+  const s = calcStats(allGames);
+  const streak = calcStreak();
+  const bestDay = dateList.reduce((best, d) => {
+    const st = calcStats(byDate[d]);
+    return st.pct > (best.pct || 0) ? { date: d, pct: st.pct } : best;
+  }, {});
+
+  document.getElementById('season-summary').innerHTML = `
+    <div class="stat-pill pill-green">
+      <div class="s-val">${s.pct ?? '—'}%</div>
+      <div class="s-lbl">시즌 정확도</div>
+    </div>
+    <div class="stat-pill">
+      <div class="s-val">${s.hits} / ${s.total}</div>
+      <div class="s-lbl">적중 / 총 경기</div>
+    </div>
+    <div class="stat-pill pill-blue">
+      <div class="s-val">${dateList.length}일</div>
+      <div class="s-lbl">트래킹 기간</div>
+    </div>
+    <div class="stat-pill pill-yellow">
+      <div class="s-val">${bestDay.pct ?? '—'}%</div>
+      <div class="s-lbl">최고 일일 정확도 (${bestDay.date ? fmtDate(bestDay.date) : '—'})</div>
+    </div>
+    <div class="stat-pill">
+      <div class="s-val">${streak.n}${streak.type === 'hit' ? '🔥' : streak.type === 'miss' ? '🧊' : ''}</div>
+      <div class="s-lbl">현재 ${streak.type === 'hit' ? '연속 50%+' : streak.type === 'miss' ? '연속 50%-' : '—'} 스트릭</div>
+    </div>
+  `;
+}
+
+function calcStreak() {
+  const rev = [...dateList].reverse();
+  if (!rev.length) return { n: 0, type: 'none' };
+  const firstSt = calcStats(byDate[rev[0]]);
+  if (firstSt.pct === null) return { n: 0, type: 'none' };
+  const type = firstSt.pct >= 50 ? 'hit' : 'miss';
+  let n = 0;
+  for (const d of rev) {
+    const st = calcStats(byDate[d]);
+    if (st.pct === null) break;
+    if (type === 'hit' && st.pct >= 50) n++;
+    else if (type === 'miss' && st.pct < 50) n++;
+    else break;
+  }
+  return { n, type };
+}
+
+// ════════════════════════════════════════
+//  트렌드 차트
+// ════════════════════════════════════════
+function renderTrendChart() {
+  const wrap = document.getElementById('trend-chart');
+  if (!dateList.length) { wrap.innerHTML = '<div style="color:var(--muted);padding:20px;">데이터 없음</div>'; return; }
+
+  const maxH = 80;
+  wrap.innerHTML = dateList.map(d => {
+    const st  = calcStats(byDate[d]);
+    const pct = st.pct ?? 0;
+    const h   = Math.max(4, Math.round(pct / 100 * maxH));
+    const cls = pct >= 70 ? 'bar-high' : pct >= 55 ? 'bar-mid' : 'bar-low';
+    const short = d.slice(5); // MM-DD
+    return `
+      <div class="trend-bar-wrap" onclick="selectDate('${d}')" id="tbar-${d}" title="${d}: ${pct}% (${st.hits}/${st.total})">
+        <div class="trend-pct" style="opacity:0;font-size:8px">${pct}%</div>
+        <div class="trend-bar ${cls}" style="height:${h}px"></div>
+        <div class="trend-label">${short}</div>
+      </div>`;
+  }).join('');
+}
+
+function updateTrendSelection(date) {
+  document.querySelectorAll('.trend-bar-wrap').forEach(el => el.classList.remove('selected'));
+  const el = document.getElementById(`tbar-${date}`);
+  if (el) {
+    el.classList.add('selected');
+    el.querySelector('.trend-pct').style.opacity = '1';
+    el.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  }
+}
+
+// ════════════════════════════════════════
+//  날짜 사이드바
+// ════════════════════════════════════════
+function renderDateSidebar(filter = '') {
+  const el = document.getElementById('date-list');
+  const filtered = dateList.filter(d => !filter || d.includes(filter)).reverse();
+  if (!filtered.length) {
+    el.innerHTML = '<div style="padding:20px 16px;color:var(--muted);font-size:12px;">결과 없음</div>';
+    return;
+  }
+
+  // 월별 그룹
+  const byMonth = {};
+  filtered.forEach(d => {
+    const m = d.slice(0, 7);
+    if (!byMonth[m]) byMonth[m] = [];
+    byMonth[m].push(d);
+  });
+
+  el.innerHTML = Object.keys(byMonth).sort().reverse().map(m => {
+    const monthLabel = (() => {
+      const [y, mo] = m.split('-');
+      return `${y}년 ${parseInt(mo)}월`;
+    })();
+    const items = byMonth[m].map(d => {
+      const st = calcStats(byDate[d]);
+      const pct = st.pct ?? 0;
+      const cls = pct >= 70 ? 'high' : pct >= 55 ? 'mid' : 'low';
+      const barColor = pct >= 70 ? '#16a34a' : pct >= 55 ? '#d97706' : '#dc2626';
+      return `
+        <div class="date-item${selectedDate === d ? ' active' : ''}" id="ditem-${d}" onclick="selectDate('${d}')">
+          <div>
+            <div class="di-date">${fmtDate(d)}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:1px;">${st.total}경기${st.pending > 0 ? ` (${st.pending} 진행중)` : ''}</div>
+          </div>
+          <div class="di-right">
+            <div class="di-acc ${cls}">${st.pct !== null ? st.pct + '%' : '—'}</div>
+            <div class="di-bar"><div class="di-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+            <div class="di-count">${st.hits}승 ${st.total - st.hits}패</div>
+          </div>
+        </div>`;
+    }).join('');
+    return `<div class="month-group"><div class="month-label">${monthLabel}</div>${items}</div>`;
+  }).join('');
+}
+
+function filterDates(val) {
+  renderDateSidebar(val.trim());
+}
+
+// ════════════════════════════════════════
+//  날짜 선택 → 경기 목록
+// ════════════════════════════════════════
+function selectDate(date) {
+  selectedDate = date;
+
+  // 사이드바 활성 표시
+  document.querySelectorAll('.date-item').forEach(el => el.classList.remove('active'));
+  const ditem = document.getElementById(`ditem-${date}`);
+  if (ditem) {
+    ditem.classList.add('active');
+    ditem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  // 트렌드 차트 선택
+  updateTrendSelection(date);
+
+  // URL 업데이트 (히스토리 push 없이)
+  const url = new URL(location.href);
+  url.searchParams.set('date', date);
+  history.replaceState(null, '', url);
+
+  renderGamesPanel(date);
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.flt-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (selectedDate) renderGamesPanel(selectedDate);
+}
+
+// ════════════════════════════════════════
+//  경기 목록 렌더링
+// ════════════════════════════════════════
+function renderGamesPanel(date) {
+  const games  = byDate[date] || [];
+  const st     = calcStats(games);
+
+  document.getElementById('panel-empty').style.display   = 'none';
+  document.getElementById('panel-content').style.display = 'block';
+  document.getElementById('panel-title').textContent     = fmtDateLong(date);
+
+  // 상단 스탯
+  const pctColor = st.pct >= 70 ? 'var(--green)' : st.pct >= 55 ? 'var(--yellow)' : st.pct !== null ? 'var(--red)' : 'var(--muted)';
+  document.getElementById('panel-stats').innerHTML = `
+    <div class="day-stat-pill">
+      <span>정확도</span>
+      <span class="ds-val" style="color:${pctColor}">${st.pct !== null ? st.pct + '%' : '—'}</span>
+    </div>
+    <div class="day-stat-pill">
+      <span>✅</span><span class="ds-val" style="color:var(--green)">${st.hits}</span>
+      <span>❌</span><span class="ds-val" style="color:var(--red)">${st.total - st.hits}</span>
+    </div>
+    ${st.highConf > 0 ? `<div class="day-stat-pill">⭐ HC <span class="ds-val">${st.hcHits}/${st.highConf}</span></div>` : ''}
+    ${st.pending > 0 ? `<div class="day-stat-pill" style="color:var(--muted)">⏳ 진행중 ${st.pending}</div>` : ''}
+  `;
+
+  // 필터
+  let filtered = games;
+  if (currentFilter === 'hit')  filtered = games.filter(g => g.correct === true);
+  if (currentFilter === 'miss') filtered = games.filter(g => g.actual_winner && g.correct === false);
+  if (currentFilter === 'high') filtered = games.filter(g => g.high_conf);
+
+  const list = document.getElementById('games-list');
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-state" style="padding:40px 0"><div class="emo">🔍</div><p>해당 조건의 경기가 없어요.</p></div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(g => renderGameRow(g)).join('');
+}
+
+function renderGameRow(g) {
+  const hasResult   = !!g.actual_winner;
+  const isHit       = hasResult && g.correct;
+  const isMiss      = hasResult && !g.correct;
+  const rowClass    = isHit ? 'is-hit' : isMiss ? 'is-miss' : 'is-pending';
+
+  const awayProb = g.pick === g.away ? g.pick_prob : (100 - g.pick_prob);
+  const homeProb = 100 - awayProb;
+  const awayProbShow = awayProb >= 5 ? Math.round(awayProb) + '%' : '';
+  const homeProbShow = homeProb >= 5 ? Math.round(homeProb) + '%' : '';
+
+  // 스코어카드 바
+  const aSp  = g.away_sp_score  || 0;
+  const hSp  = g.home_sp_score  || 0;
+  const aBp  = g.away_bp_score  || 0;
+  const hBp  = g.home_bp_score  || 0;
+  const aBat = g.away_bat_score || 0;
+  const hBat = g.home_bat_score || 0;
+
+  const awayShort = shortTeam(g.away);
+  const homeShort = shortTeam(g.home);
+
+  const dhBadge = g.game_number === 2 ? '<span class="gr-status gs-dh">DH-2</span>' : '';
+
+  return `
+    <div class="game-row ${rowClass}">
+      <div class="gr-header">
+        <div class="gr-teams">
+          <span class="gr-team">${g.away}</span>
+          <span class="gr-vs">@</span>
+          <span class="gr-team">${g.home}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          ${dhBadge}
+          ${hasResult ? '<span class="gr-status gs-final">FINAL</span>' : '<span class="gr-status" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.6)">예정</span>'}
+        </div>
+      </div>
+      <div class="gr-body">
+        <!-- 예측 픽 -->
+        <div>
+          <div class="gr-section-label">🎯 예측</div>
+          <div class="gr-pick-team">${g.pick}</div>
+          <div class="gr-pick-prob">${Math.round(g.pick_prob)}<sub>%</sub></div>
+        </div>
+        <!-- 확률 바 -->
+        <div>
+          <div class="gr-section-label">승률 분포</div>
+          <div class="gr-prob-bar">
+            <div class="gr-prob-away" style="width:${Math.round(awayProb)}%">${awayProbShow}</div>
+            <div class="gr-prob-home" style="width:${Math.round(homeProb)}%">${homeProbShow}</div>
+          </div>
+          <div class="gr-prob-labels">
+            <span class="away-lbl">${awayShort}</span>
+            <span class="home-lbl">${homeShort}</span>
+          </div>
+        </div>
+        <!-- 실제 결과 -->
+        <div>
+          <div class="gr-section-label">🏆 실제 결과</div>
+          ${hasResult
+            ? `<div class="gr-result-winner">${g.actual_winner}</div>
+               ${g.home_score !== undefined && g.away_score !== undefined
+                 ? `<div class="gr-result-score">${g.away} ${g.away_score} - ${g.home_score} ${g.home}</div>`
+                 : `<div class="gr-result-score">결과 확정</div>`}`
+            : `<div class="gr-result-pending">결과 대기 중</div>`}
+        </div>
+        <!-- 판정 -->
+        <div class="gr-verdict">
+          ${hasResult
+            ? `<span class="verdict-badge ${isHit ? 'vb-hit' : 'vb-miss'}">${isHit ? '✅ 적중' : '❌ 미스'}</span>`
+            : `<span class="verdict-badge vb-pend">⏳ 대기</span>`}
+          ${g.high_conf ? '<span class="high-conf-badge">⭐ 고신뢰</span>' : ''}
+          ${g.low_confidence ? '<span class="low-conf-badge">🔮 저신뢰</span>' : ''}
+        </div>
+      </div>
+      <!-- 스코어카드 미니 바 (데이터 있을 때만) -->
+      ${(aSp || hSp || aBp || hBp) ? `
+      <div class="gr-scorecards">
+        ${aSp || hSp ? `
+        <div class="sc-mini-row">
+          <div class="sc-mini-label">SP</div>
+          <div class="sc-mini-team" style="color:#93c5fd">${awayShort}</div>
+          <div class="sc-mini-track"><div class="sc-mini-fill scf-sp" style="width:${aSp}%"></div></div>
+          <div class="sc-mini-val">${Math.round(aSp)}</div>
+        </div>
+        <div class="sc-mini-row">
+          <div class="sc-mini-label">SP</div>
+          <div class="sc-mini-team" style="color:#86efac">${homeShort}</div>
+          <div class="sc-mini-track"><div class="sc-mini-fill scf-sp" style="width:${hSp}%"></div></div>
+          <div class="sc-mini-val">${Math.round(hSp)}</div>
+        </div>` : ''}
+        ${aBp || hBp ? `
+        <div class="sc-mini-row">
+          <div class="sc-mini-label">불펜</div>
+          <div class="sc-mini-team" style="color:#93c5fd">${awayShort}</div>
+          <div class="sc-mini-track"><div class="sc-mini-fill scf-bp" style="width:${aBp}%"></div></div>
+          <div class="sc-mini-val">${Math.round(aBp)}</div>
+        </div>
+        <div class="sc-mini-row">
+          <div class="sc-mini-label">불펜</div>
+          <div class="sc-mini-team" style="color:#86efac">${homeShort}</div>
+          <div class="sc-mini-track"><div class="sc-mini-fill scf-bp" style="width:${hBp}%"></div></div>
+          <div class="sc-mini-val">${Math.round(hBp)}</div>
+        </div>` : ''}
+      </div>` : ''}
+    </div>`;
+}
+
+// ════════════════════════════════════════
+//  유틸
+// ════════════════════════════════════════
+function fmtDate(d) {
+  // 2026-09-13 → 9/13 (일)
+  const [y, m, day] = d.split('-').map(Number);
+  const dow = ['일','월','화','수','목','금','토'][new Date(y, m-1, day).getDay()];
+  return `${m}/${day} (${dow})`;
+}
+
+function fmtDateLong(d) {
+  const [y, m, day] = d.split('-').map(Number);
+  const dow = ['일','월','화','수','목','금','토'][new Date(y, m-1, day).getDay()];
+  return `${y}년 ${m}월 ${day}일 (${dow})`;
+}
+
+function shortTeam(name) {
+  const map = {
+    'New York Yankees':'NYY','New York Mets':'NYM','Los Angeles Dodgers':'LAD',
+    'Los Angeles Angels':'LAA','San Francisco Giants':'SF','San Diego Padres':'SD',
+    'Chicago Cubs':'CHC','Chicago White Sox':'CWS','Boston Red Sox':'BOS',
+    'Houston Astros':'HOU','Atlanta Braves':'ATL','Philadelphia Phillies':'PHI',
+    'Kansas City Royals':'KC','Toronto Blue Jays':'TOR','Minnesota Twins':'MIN',
+    'Cleveland Guardians':'CLE','Detroit Tigers':'DET','Baltimore Orioles':'BAL',
+    'Tampa Bay Rays':'TB','Seattle Mariners':'SEA','Texas Rangers':'TEX',
+    'Oakland Athletics':'OAK','Athletics':'OAK','Arizona Diamondbacks':'ARI',
+    'Colorado Rockies':'COL','Miami Marlins':'MIA','Washington Nationals':'WSH',
+    'Milwaukee Brewers':'MIL','St. Louis Cardinals':'STL','Pittsburgh Pirates':'PIT',
+    'Cincinnati Reds':'CIN','Chicago Cubs':'CHC',
+  };
+  return map[name] || name.split(' ').pop().slice(0, 3).toUpperCase();
+}
+
+// ════════════════════════════════════════
+//  실행
+// ════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
