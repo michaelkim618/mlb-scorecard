@@ -1625,21 +1625,26 @@ def run(game_date: Optional[str] = None) -> list:
     )
     print(f"저장 완료 ({len(results)}경기)")
 
-    # ── 웹사이트 public/predictions.json 자동 동기화 ──────────────────
-    # mlb-scorecard-web/public/predictions.json 을 항상 최신으로 유지
+    # ── 웹사이트 public/predictions.json + dated JS 자동 동기화 ───────
+    js_filename = f"predictions_{game_date}.js"
+    js_payload  = f"// Auto-generated (scorecard) — {game_date}\nwindow.PREDICTIONS_DATA = {json_payload};\n"
     WEB_PUBLIC_DIRS = [
-        Path(__file__).parent.parent / "mlb-scorecard-web" / "public",   # GitHub Actions: repo_root/mlb-scorecard-web/
+        Path(__file__).parent.parent / "mlb-scorecard-web" / "public",
         Path(__file__).parent.parent / "mlb-scorecard-web" / "dist",
-        Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "public",  # 로컬 fallback
+        Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "public",
         Path(__file__).parent.parent.parent / "mlb-scorecard-web" / "dist",
     ]
     for web_dir in WEB_PUBLIC_DIRS:
-        target = web_dir / "predictions.json"
-        if web_dir.exists():
-            target.write_text(json_payload, encoding="utf-8")
-            print(f"  [🌐 웹싱크] {target} 업데이트 완료")
-        else:
+        if not web_dir.exists():
             print(f"  [🌐 웹싱크] {web_dir} 없음 — 스킵")
+            continue
+        # predictions.json (항상 최신)
+        (web_dir / "predictions.json").write_text(json_payload, encoding="utf-8")
+        # 날짜별 JS 파일 → output/ 폴더에 저장
+        out_dir = web_dir / "output"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / js_filename).write_text(js_payload, encoding="utf-8")
+        print(f"  [🌐 웹싱크] {web_dir} — predictions.json + output/{js_filename} 저장 완료")
 
     return results
 
