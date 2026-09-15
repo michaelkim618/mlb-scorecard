@@ -126,6 +126,8 @@ def build_game_entry(g, date_str):
         "pick":          pick,
         "pick_prob":     pick_prob,
         "actual_winner": g.get("actual_winner", ""),
+        "away_score":    (g.get("actual_score") or {}).get("away"),
+        "home_score":    (g.get("actual_score") or {}).get("home"),
         "correct":       bool(g.get("model_correct")),
         "high_conf":     pick_prob >= 65.0,
         # SP / 불펜 데이터 (Cold SP 패턴 분석용)
