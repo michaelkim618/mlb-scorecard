@@ -933,6 +933,39 @@ def run(game_date: Optional[str] = None) -> list:
                 away_win_pct = round(100.0 - home_win_pct, 1)
                 print(f"    [ERA리스크] {home_name} 선발 ERA {home_season_era:.2f} → -{era_penalty:.1f}% 보정")
 
+        # ── 6.6 SP 트렌드 괴리 보정 ──────────────────────────────────
+        # last3_era가 season_era보다 2.0 이상 높으면 최근 폼이 급격히 악화된 것
+        # → 예측 확률 하향 (5~8%p, 선발이 유리한 쪽일 때만 적용)
+        SP_TREND_GAP_THRESHOLD = 2.0   # last3_era - season_era 이 이상이면 발동
+        SP_TREND_MIN_PENALTY   = 5.0   # 최소 패널티 %p
+        SP_TREND_MAX_PENALTY   = 8.0   # 최대 패널티 %p
+        SP_TREND_APPLY_MIN_PROB = 52.0 # 이 확률 이상인 팀에만 적용 (불리한 팀에 이중 패널티 방지)
+
+        away_last3_era = away_sp_detail.get("last3_era") if away_sp_detail else None
+        home_last3_era = home_sp_detail.get("last3_era") if home_sp_detail else None
+
+        if (away_last3_era is not None and away_season_era is not None
+                and away_last3_era - away_season_era >= SP_TREND_GAP_THRESHOLD
+                and not away_is_tbd
+                and away_win_pct >= SP_TREND_APPLY_MIN_PROB):
+            gap = away_last3_era - away_season_era
+            trend_penalty = round(min(SP_TREND_MAX_PENALTY,
+                                      SP_TREND_MIN_PENALTY + (gap - SP_TREND_GAP_THRESHOLD) * 0.75), 1)
+            away_win_pct = max(50.0, away_win_pct - trend_penalty)
+            home_win_pct = round(100.0 - away_win_pct, 1)
+            print(f"    [SP트렌드괴리] {away_name} 선발 last3ERA {away_last3_era:.2f} vs 시즌ERA {away_season_era:.2f} (gap +{gap:.2f}) → -{trend_penalty:.1f}%")
+
+        if (home_last3_era is not None and home_season_era is not None
+                and home_last3_era - home_season_era >= SP_TREND_GAP_THRESHOLD
+                and not home_is_tbd
+                and home_win_pct >= SP_TREND_APPLY_MIN_PROB):
+            gap = home_last3_era - home_season_era
+            trend_penalty = round(min(SP_TREND_MAX_PENALTY,
+                                      SP_TREND_MIN_PENALTY + (gap - SP_TREND_GAP_THRESHOLD) * 0.75), 1)
+            home_win_pct = max(50.0, home_win_pct - trend_penalty)
+            away_win_pct = round(100.0 - home_win_pct, 1)
+            print(f"    [SP트렌드괴리] {home_name} 선발 last3ERA {home_last3_era:.2f} vs 시즌ERA {home_season_era:.2f} (gap +{gap:.2f}) → -{trend_penalty:.1f}%")
+
         # ── 7. TBD 추가 패널티 ────────────────────────────────────────
         if away_is_tbd and not home_is_tbd:
             home_win_pct = min(home_win_pct + 4.0, HARD_CAP)
