@@ -934,11 +934,13 @@ def run(game_date: Optional[str] = None) -> list:
                 print(f"    [ERA리스크] {home_name} 선발 ERA {home_season_era:.2f} → -{era_penalty:.1f}% 보정")
 
         # ── 6.6 SP 트렌드 괴리 보정 ──────────────────────────────────
-        # last3_era가 season_era보다 2.0 이상 높으면 최근 폼이 급격히 악화된 것
-        # → 예측 확률 하향 (5~8%p, 선발이 유리한 쪽일 때만 적용)
-        SP_TREND_GAP_THRESHOLD = 2.0   # last3_era - season_era 이 이상이면 발동
-        SP_TREND_MIN_PENALTY   = 5.0   # 최소 패널티 %p
-        SP_TREND_MAX_PENALTY   = 8.0   # 최대 패널티 %p
+        # last3_era가 season_era보다 1.5 이상 높으면 최근 폼이 악화된 것
+        # → 예측 확률 하향 (4~7%p, 선발이 유리한 쪽일 때만 적용)
+        # 2024-09-16 분석: Kirby(gap+1.72), Montero(gap+1.5) 등 2.0 미달 케이스가 실제로
+        # 결과에 영향 → 임계값 2.0→1.5로 하향, 패널티 범위도 4~7%p로 조정
+        SP_TREND_GAP_THRESHOLD = 1.5   # last3_era - season_era 이 이상이면 발동 (기존 2.0)
+        SP_TREND_MIN_PENALTY   = 4.0   # 최소 패널티 %p (기존 5.0)
+        SP_TREND_MAX_PENALTY   = 7.0   # 최대 패널티 %p (기존 8.0)
         SP_TREND_APPLY_MIN_PROB = 52.0 # 이 확률 이상인 팀에만 적용 (불리한 팀에 이중 패널티 방지)
 
         away_last3_era = away_sp_detail.get("last3_era") if away_sp_detail else None
@@ -965,6 +967,73 @@ def run(game_date: Optional[str] = None) -> list:
             home_win_pct = max(50.0, home_win_pct - trend_penalty)
             away_win_pct = round(100.0 - home_win_pct, 1)
             print(f"    [SP트렌드괴리] {home_name} 선발 last3ERA {home_last3_era:.2f} vs 시즌ERA {home_season_era:.2f} (gap +{gap:.2f}) → -{trend_penalty:.1f}%")
+
+        # ── 6.7 원정 타선 Away RPG 페널티 ────────────────────────────
+        # 분석: LAD(away_rpg=3.5), BOS(2.6), NYY 등 — overall 타선 hot이어도
+        #        원정 실제 득점력이 낮으면 확률을 과대평가하는 패턴 반복
+        # → 원정팀 away_rpg < 4.0이면 원정팀 예측 확률 하향
+        AWAY_RPG_THRESHOLD   = 4.0   # 이 미만이면 발동
+        AWAY_RPG_PENALTY_MIN = 3.0   # away_rpg 3.5~4.0 구간 최소 페널티 %p
+        AWAY_RPG_PENALTY_MAX = 7.0   # away_rpg < 3.0 최대 페널티 %p
+        AWAY_RPG_APPLY_MIN_PROB = 52.0
+
+        away_away_rpg = away_bat_detail.get("away_rpg") if away_bat_detail else None
+        # home_home_rpg = home_bat_detail.get("home_rpg") if home_bat_detail else None  # 미래 활용
+
+        if (away_away_rpg is not None
+                and away_away_rpg < AWAY_RPG_THRESHOLD
+                and away_win_pct >= AWAY_RPG_APPLY_MIN_PROB):
+            rpg_gap = AWAY_RPG_THRESHOLD - away_away_rpg
+            rpg_penalty = round(min(AWAY_RPG_PENALTY_MAX,
+                                    AWAY_RPG_PENALTY_MIN + rpg_gap * 1.5), 1)
+            away_win_pct = max(50.0, away_win_pct - rpg_penalty)
+            home_win_pct = round(100.0 - away_win_pct, 1)
+            print(f"    [원정RPG페널티] {away_name} away_rpg={away_away_rpg:.1f} (임계 {AWAY_RPG_THRESHOLD}) → -{rpg_penalty:.1f}%")
+
+        # ── 6.8 불펜 최근 폼(recent_era) 보정 ───────────────────────
+        # 분석: KC BP recent_era=2.7 (리그 최상)이었지만 HOU 59.8% 예측 → KC 승
+        #        STL BP recent_era=5.87 였지만 STL 50.5% 예측 → SF 승
+        # → 7일 불펜 ERA가 극단적으로 좋거나 나쁠 때 추가 보정 필요
+        BP_HOT_ERA_THRESHOLD  = 3.0   # recent_era 이 미만 = 불펜 핫
+        BP_COLD_ERA_THRESHOLD = 5.5   # recent_era 이 이상 = 불펜 콜드
+        BP_HOT_BONUS          = 3.5   # 상대 예측 확률 하향 %p (내 불펜 hot이면 상대 불리)
+        BP_COLD_PENALTY       = 3.0   # 불펜 콜드 팀 확률 하향 %p
+        BP_APPLY_MIN_PROB     = 52.0
+
+        away_bp_recent = away_bp_detail.get("recent_era") if away_bp_detail else None
+        home_bp_recent = home_bp_detail.get("recent_era") if home_bp_detail else None
+
+        # 원정 불펜 핫 → 원정팀 유리 (홈팀 확률 하향)
+        if (away_bp_recent is not None
+                and away_bp_recent < BP_HOT_ERA_THRESHOLD
+                and home_win_pct >= BP_APPLY_MIN_PROB):
+            home_win_pct = max(50.0, home_win_pct - BP_HOT_BONUS)
+            away_win_pct = round(100.0 - home_win_pct, 1)
+            print(f"    [BP핫보정] {away_name} 불펜 recent_era={away_bp_recent:.2f} (핫) → {home_name} -{BP_HOT_BONUS}%")
+
+        # 홈 불펜 핫 → 홈팀 유리 (원정팀 확률 하향)
+        if (home_bp_recent is not None
+                and home_bp_recent < BP_HOT_ERA_THRESHOLD
+                and away_win_pct >= BP_APPLY_MIN_PROB):
+            away_win_pct = max(50.0, away_win_pct - BP_HOT_BONUS)
+            home_win_pct = round(100.0 - away_win_pct, 1)
+            print(f"    [BP핫보정] {home_name} 불펜 recent_era={home_bp_recent:.2f} (핫) → {away_name} -{BP_HOT_BONUS}%")
+
+        # 원정 불펜 콜드 → 원정팀 불리
+        if (away_bp_recent is not None
+                and away_bp_recent >= BP_COLD_ERA_THRESHOLD
+                and away_win_pct >= BP_APPLY_MIN_PROB):
+            away_win_pct = max(50.0, away_win_pct - BP_COLD_PENALTY)
+            home_win_pct = round(100.0 - away_win_pct, 1)
+            print(f"    [BP콜드페널티] {away_name} 불펜 recent_era={away_bp_recent:.2f} (콜드) → -{BP_COLD_PENALTY}%")
+
+        # 홈 불펜 콜드 → 홈팀 불리
+        if (home_bp_recent is not None
+                and home_bp_recent >= BP_COLD_ERA_THRESHOLD
+                and home_win_pct >= BP_APPLY_MIN_PROB):
+            home_win_pct = max(50.0, home_win_pct - BP_COLD_PENALTY)
+            away_win_pct = round(100.0 - home_win_pct, 1)
+            print(f"    [BP콜드페널티] {home_name} 불펜 recent_era={home_bp_recent:.2f} (콜드) → -{BP_COLD_PENALTY}%")
 
         # ── 7. TBD 추가 패널티 ────────────────────────────────────────
         if away_is_tbd and not home_is_tbd:
