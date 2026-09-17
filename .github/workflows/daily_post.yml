@@ -454,7 +454,7 @@ jobs:
           # 7일 이상 된 post_state 파일 정리
           find public -name "post_state_*.json" -mtime +7 -delete 2>/dev/null || true
 
-          git add public/news.json public/season_results.json public/predictions.json public/blog/ public/post_state_*.json || true
+          git add public/news.json public/season_results.json public/predictions.json public/output/ public/blog/ public/post_state_*.json || true
           git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }})"
           # rebase 실패 시 재시도 — 수동 커밋 충돌 방어 (재시도 5회, 간격 10초로 강화)
           PUSHED=false
@@ -471,7 +471,7 @@ jobs:
             echo "⚠️ 웹 레포 push 최종 실패 — theirs 전략으로 강제 병합 시도"
             git fetch origin
             git reset --soft origin/main
-            git add public/news.json public/season_results.json public/predictions.json public/blog/ public/post_state_*.json || true
+            git add public/news.json public/season_results.json public/predictions.json public/output/ public/blog/ public/post_state_*.json || true
             git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }}) [retry]"
             git push || echo "⚠️ 최종 push도 실패 (다음 run에서 재시도됨)"
           fi
