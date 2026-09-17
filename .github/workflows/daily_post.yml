@@ -341,6 +341,7 @@ jobs:
       # 어제 경기 결과(actual_winner)를 output/predictions.json 에 포함시켜
       # update_season_results.py 가 어제 결과를 정확히 기록할 수 있게 함
       - name: 전날 파이프라인 실행 (항상 — season_results 업데이트 전 선행)
+        if: steps.config.outputs.MODE != 'direct_pipeline'
         env:
           SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
         run: |
@@ -474,6 +475,7 @@ jobs:
           PYEOF
 
       - name: 웹 레포 커밋 & 푸시 (항상)
+        if: steps.config.outputs.MODE != 'direct_pipeline'
         working-directory: mlb-scorecard-web
         run: |
           git config user.name "MLB Scorecard Bot"
