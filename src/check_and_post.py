@@ -636,6 +636,16 @@ def check_and_post_results(game_date: str):
             capture_output=True, text=True, cwd=str(BASE_DIR)
         )
 
+    # ★ 실제 결과 데이터 확인 — 없으면 포스팅 차단 ("Results being finalized" 방지)
+    preds_check = load_predictions()
+    finished_count = sum(1 for g in preds_check if g.get("actual_winner"))
+    total_count    = len(preds_check)
+    if finished_count == 0:
+        print(f"⏳ 아직 결과 없음 ({finished_count}/{total_count}) — 포스팅 스킵 (다음 run에서 재시도)")
+        return
+
+    print(f"✅ 결과 확인: {finished_count}/{total_count}경기 완료 → 포스팅 진행")
+
     # 결과 포스팅
     run_instagram_post(game_date, post_type="results")  # 인스타그램 결과 포스팅
     run_twitter_post(game_date, post_type="results")
