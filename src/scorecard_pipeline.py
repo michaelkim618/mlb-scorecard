@@ -977,8 +977,14 @@ def run(game_date: Optional[str] = None) -> list:
         AWAY_RPG_PENALTY_MAX = 7.0   # away_rpg < 3.0 최대 페널티 %p
         AWAY_RPG_APPLY_MIN_PROB = 52.0
 
-        away_away_rpg = away_bat_detail.get("away_rpg") if away_bat_detail else None
-        # home_home_rpg = home_bat_detail.get("home_rpg") if home_bat_detail else None  # 미래 활용
+        # away_rpg: bat_detail["away_split"]["runs_per_g"] 에 실제 원정 득점력 저장됨
+        _away_split = away_bat_detail.get("away_split", {}) if away_bat_detail else {}
+        away_away_rpg = (_away_split.get("runs_per_g")
+                         or away_bat_detail.get("away_rpg")
+                         if away_bat_detail else None)
+        # home_home_rpg: home_bat_detail["home_split"]["runs_per_g"] (미래 활용)
+        # _home_split = home_bat_detail.get("home_split", {}) if home_bat_detail else {}
+        # home_home_rpg = _home_split.get("runs_per_g") or home_bat_detail.get("home_rpg")
 
         if (away_away_rpg is not None
                 and away_away_rpg < AWAY_RPG_THRESHOLD
