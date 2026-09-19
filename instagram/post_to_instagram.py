@@ -353,8 +353,35 @@ def build_results_caption(post_date: str, preds: list) -> str:
     )
     return caption
 
-def capture_homepage() -> Path:
-    """홈페이지 스크린샷 캡처 → Path 반환"""
+def generate_card_image(post_date: str, preds: list, post_type: str) -> Path:
+    """
+    흰색 배경 데이터 카드 생성 → Path 반환
+    post_type: "prediction" 또는 "results"
+    """
+    cards_dir = DATA_DIR / "cards"
+    try:
+        # generate_card.py 가 같은 디렉토리에 있음
+        sys.path.insert(0, str(Path(__file__).parent))
+        from generate_card import generate_prediction_card, generate_results_card
+
+        if post_type == "results":
+            path = generate_results_card(post_date, preds, cards_dir, abbr_fn=abbr)
+        else:
+            path = generate_prediction_card(post_date, preds, cards_dir, abbr_fn=abbr)
+
+        if path and path.exists():
+            return path
+    except Exception as e:
+        print(f"⚠️  카드 생성 실패: {e}")
+        import traceback; traceback.print_exc()
+
+    # ── 폴백: 홈페이지 스크린샷 ──
+    print("⚠️  카드 생성 실패 → 홈페이지 스크린샷으로 대체")
+    return _capture_homepage_fallback()
+
+
+def _capture_homepage_fallback() -> Path:
+    """홈페이지 스크린샷 (카드 생성 실패 시 폴백)"""
     output_path = DATA_DIR / "homepage.png"
     try:
         from playwright.sync_api import sync_playwright
@@ -428,8 +455,8 @@ def main():
         print("🧪 DRY RUN — 실제 포스팅 안 함")
         return
 
-    # 홈페이지 스크린샷 캡처
-    cover_path = capture_homepage()
+    # 흰색 데이터 카드 생성 (폴백: 홈페이지 스크린샷)
+    cover_path = generate_card_image(args.date, preds, args.type)
 
     if not cover_path or not cover_path.exists():
         print("❌ 이미지 없음 — 포스팅 중단")
