@@ -215,9 +215,14 @@ def analyze_pitcher_recent(game_logs: list, n: int = 10,
         recent_bad_start = False
 
     # ── 샘플 신뢰도 ──────────────────────────────────────────────────
-    # n_games < 5: 소수 샘플 → ERA 신뢰도 낮음, 기본값 방향으로 회귀
+    # n_games < 5 : 소수 샘플 → ERA 신뢰도 낮음, 리그 평균 방향으로 회귀
+    # n_games 5~7: 루키/소샘플 투수도 부분 회귀 적용 (v15)
+    #   5경기 신인을 베테랑과 동일 취급하면 ERA 과신 발생
+    #   → 8경기 이상부터 완전 신뢰 (5경기=0.80, 6=0.87, 7=0.93, 8+=1.0)
     if n_games < 5:
-        sample_confidence = n_games / 5.0   # 0.0~1.0
+        sample_confidence = n_games / 5.0             # 0.0 ~ 0.80
+    elif n_games < 8:
+        sample_confidence = 0.80 + (n_games - 5) * (0.20 / 3)  # 0.80 ~ 1.0
     else:
         sample_confidence = 1.0
 
@@ -377,14 +382,16 @@ def pitcher_score(stats: dict, season_era: float = None,
     #   n_games == 3: +1.5pt
     #   n_games ≤ 2: +1.0pt (최소 신뢰 보너스만 적용)
     n_games_val = stats.get("n_games", 5)
-    if n_games_val >= 5:
-        hot_bonus = 3.0
+    if n_games_val >= 8:
+        hot_bonus = 3.0    # 충분한 샘플 → 정상 보너스
+    elif n_games_val >= 5:
+        hot_bonus = 2.0    # 5~7경기 소샘플 → hot 보너스 감쇠 (v15)
     elif n_games_val == 4:
-        hot_bonus = 2.0
-    elif n_games_val == 3:
         hot_bonus = 1.5
-    else:  # 1~2경기
+    elif n_games_val == 3:
         hot_bonus = 1.0
+    else:  # 1~2경기
+        hot_bonus = 0.5
 
     # ── Hot avg_ip 감쇠 (v4) ─────────────────────────────────────────
     # 평균 이닝이 짧은 투수는 hot 트렌드여도 실제 경기 기여도가 낮음
@@ -406,7 +413,16 @@ def pitcher_score(stats: dict, season_era: float = None,
     if trend == "hot" and not recent_bad_start:
         score = min(100.0, score + hot_bonus)
     elif trend == "cold":
-        score = max(0.0, score - 8.0)
+        # v15: 시즌 ERA 우수(< 3.50) 베테랑 투수의 단기 슬럼프는 패널티 절반
+        # 일시적 2~3경기 부진이 시즌 전체 퀄리티를 뒤집지 않음
+        # (불펜 cold 패널티와 동일한 논리 적용 — BP fix 2026-09-20)
+        if season_era is not None and season_era < 3.50:
+            cold_penalty = 4.0   # 우수 투수: -4pt (절반)
+        elif season_era is not None and season_era < 4.20:
+            cold_penalty = 6.0   # 평균 이상 투수: -6pt (75%)
+        else:
+            cold_penalty = 8.0   # 부진 투수: -8pt (풀 패널티)
+        score = max(0.0, score - cold_penalty)
     # neutral (장기 휴식 복귀): trend 보정 없음 → 최근 기록 그대로 반영
 
     # ── avg_ip 짧은 등판 페널티 (v4) ────────────────────────────────

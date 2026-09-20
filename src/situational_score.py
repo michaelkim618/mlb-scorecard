@@ -80,11 +80,15 @@ def situational_score(
             wpct = wins / total
             gap = wpct - 0.500
             abs_gap = abs(gap)
-            if abs_gap >= 0.100:      # 60%↑ 또는 40%↓ — 확연한 강팀/약팀
+            # v15: 격차 구간 세분화 — 플레이오프 contender vs. 하위팀 격차 강화
+            # 이전: 최대 계수 25 / 개선: 상위권(62%+) vs 하위권(38%-) 맞대결 → 계수 30
+            if abs_gap >= 0.120:      # 62%↑ 또는 38%↓ — 플레이오프급 강팀 / 꼴찌
+                coeff = 30.0
+            elif abs_gap >= 0.100:    # 60~62% 또는 38~40% — 확연한 강팀/약팀
                 coeff = 25.0
             elif abs_gap >= 0.060:    # 56~60% 또는 40~44% — 뚜렷한 차이
                 coeff = 20.0
-            else:                     # ±6% 이내 — 중간 팀 (기존 동일)
+            else:                     # ±6% 이내 — 중간 팀
                 coeff = 15.0
             score += gap * coeff
 
