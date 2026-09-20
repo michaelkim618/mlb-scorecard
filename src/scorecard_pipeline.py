@@ -364,7 +364,7 @@ def run(game_date: Optional[str] = None) -> list:
             )
             if away_est_pitcher:
                 away_pitcher_id = away_est_pitcher["id"]
-                away_pitcher    = away_est_pitcher["name"] + " (미정)"
+                away_pitcher    = away_est_pitcher["name"] + " (TBD)"
                 away_gl = _safe(lambda p=away_est_pitcher["id"]: get_pitcher_gamelog(p, 10), [], "원정 추정투수 게임로그")
                 away_sp_detail  = analyze_pitcher_recent(away_gl, 10, game_date)
                 away_handedness = away_est_pitcher.get("handedness", "R")
@@ -386,7 +386,7 @@ def run(game_date: Optional[str] = None) -> list:
             )
             if home_est_pitcher:
                 home_pitcher_id = home_est_pitcher["id"]
-                home_pitcher    = home_est_pitcher["name"] + " (미정)"
+                home_pitcher    = home_est_pitcher["name"] + " (TBD)"
                 home_gl = _safe(lambda p=home_est_pitcher["id"]: get_pitcher_gamelog(p, 10), [], "홈 추정투수 게임로그")
                 home_sp_detail  = analyze_pitcher_recent(home_gl, 10, game_date)
                 home_handedness = home_est_pitcher.get("handedness", "R")
@@ -436,8 +436,8 @@ def run(game_date: Optional[str] = None) -> list:
             home_sp_detail, season_era=home_season_era,
             season_wins=home_season_wins, season_losses=home_season_losses)
 
-        tbd_tag_away = " [미정]" if away_est_pitcher else (" [TBD]" if away_is_tbd else "")
-        tbd_tag_home = " [미정]" if home_est_pitcher else (" [TBD]" if home_is_tbd else "")
+        tbd_tag_away = " [TBD]" if away_est_pitcher else (" [TBD]" if away_is_tbd else "")
+        tbd_tag_home = " [TBD]" if home_est_pitcher else (" [TBD]" if home_is_tbd else "")
 
         def _sp_note(sp):
             notes = []

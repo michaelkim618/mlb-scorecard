@@ -110,12 +110,12 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
             day_overrides = PITCHER_OVERRIDES.get(game_date, {})
             if away_id in day_overrides:
                 name, pid = day_overrides[away_id]
-                prev = away_pitcher.get("fullName", "미정")
+                prev = away_pitcher.get("fullName", "TBD")
                 away_pitcher = {"fullName": name, "id": pid}
                 print(f"  [오버라이드] {away['team']['name']} 선발: {prev} → {name}")
             if home_id in day_overrides:
                 name, pid = day_overrides[home_id]
-                prev = home_pitcher.get("fullName", "미정")
+                prev = home_pitcher.get("fullName", "TBD")
                 home_pitcher = {"fullName": name, "id": pid}
                 print(f"  [오버라이드] {home['team']['name']} 선발: {prev} → {name}")
 
