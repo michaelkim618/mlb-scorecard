@@ -1026,20 +1026,26 @@ def run(game_date: Optional[str] = None) -> list:
             print(f"    [BP핫보정] {home_name} 불펜 recent_era={home_bp_recent:.2f} (핫) → {away_name} -{BP_HOT_BONUS}%")
 
         # 원정 불펜 콜드 → 원정팀 불리
+        # 단, 시즌 ERA가 우수(< 3.5)한 팀은 7일 슬럼프가 시즌 퀄리티를 뒤집지 않으므로 패널티 절반
         if (away_bp_recent is not None
                 and away_bp_recent >= BP_COLD_ERA_THRESHOLD
                 and away_win_pct >= BP_APPLY_MIN_PROB):
-            away_win_pct = max(50.0, away_win_pct - BP_COLD_PENALTY)
+            away_bp_season = away_bp_detail.get("bullpen_era", 4.0) if away_bp_detail else 4.0
+            effective_cold_penalty = BP_COLD_PENALTY * 0.5 if away_bp_season < 3.5 else BP_COLD_PENALTY
+            away_win_pct = max(50.0, away_win_pct - effective_cold_penalty)
             home_win_pct = round(100.0 - away_win_pct, 1)
-            print(f"    [BP콜드페널티] {away_name} 불펜 recent_era={away_bp_recent:.2f} (콜드) → -{BP_COLD_PENALTY}%")
+            print(f"    [BP콜드페널티] {away_name} 불펜 recent_era={away_bp_recent:.2f} / season_era={away_bp_season:.2f} → -{effective_cold_penalty:.1f}%")
 
         # 홈 불펜 콜드 → 홈팀 불리
+        # 단, 시즌 ERA가 우수(< 3.5)한 팀은 7일 슬럼프가 시즌 퀄리티를 뒤집지 않으므로 패널티 절반
         if (home_bp_recent is not None
                 and home_bp_recent >= BP_COLD_ERA_THRESHOLD
                 and home_win_pct >= BP_APPLY_MIN_PROB):
-            home_win_pct = max(50.0, home_win_pct - BP_COLD_PENALTY)
+            home_bp_season = home_bp_detail.get("bullpen_era", 4.0) if home_bp_detail else 4.0
+            effective_cold_penalty = BP_COLD_PENALTY * 0.5 if home_bp_season < 3.5 else BP_COLD_PENALTY
+            home_win_pct = max(50.0, home_win_pct - effective_cold_penalty)
             away_win_pct = round(100.0 - home_win_pct, 1)
-            print(f"    [BP콜드페널티] {home_name} 불펜 recent_era={home_bp_recent:.2f} (콜드) → -{BP_COLD_PENALTY}%")
+            print(f"    [BP콜드페널티] {home_name} 불펜 recent_era={home_bp_recent:.2f} / season_era={home_bp_season:.2f} → -{effective_cold_penalty:.1f}%")
 
         # ── 7. TBD 추가 패널티 ────────────────────────────────────────
         if away_is_tbd and not home_is_tbd:
@@ -1584,14 +1590,26 @@ def run(game_date: Optional[str] = None) -> list:
 
             net_home = win_gap + streak_gap + home_field
 
+            # sit_score 이미 standings/streak 반영 여부 확인 → 이중 계산 방지
+            # sit_score 차이가 크면(≥5.0) 타이브레이커가 이미 반영된 것으로 보고 소폭 조정만
+            away_sit_tb = sc["breakdown"]["away"].get("sit", 0)
+            home_sit_tb = sc["breakdown"]["home"].get("sit", 0)
+            sit_already_reflects = abs(away_sit_tb - home_sit_tb) >= 5.0
+
             if net_home >= 0:
                 # 홈팀 우위 또는 동등 → 기존 HOME_BONUS 유지
                 tb_winner = home_name
             else:
                 # 원정팀이 홈 어드밴티지를 극복할 만큼 우위
-                # → 홈 보너스를 제거하고 원정팀 소폭 우위로 전환
-                home_win_pct = max(45.0, home_win_pct - HOME_BONUS - 1.5)
-                away_win_pct = round(100.0 - home_win_pct, 1)
+                if sit_already_reflects:
+                    # sit_score가 이미 standings 차이를 반영 → 소폭 넛지만 (±2%)
+                    home_win_pct = max(46.0, home_win_pct - 2.0)
+                    away_win_pct = round(100.0 - home_win_pct, 1)
+                    print(f"    [🔀 타이브레이커] sit_score 이미 반영(차이 {abs(away_sit_tb-home_sit_tb):.1f}p) → 소폭 넛지 -2%")
+                else:
+                    # sit_score에 미반영 → 홈 보너스 제거하고 원정팀 소폭 우위로 전환
+                    home_win_pct = max(45.0, home_win_pct - HOME_BONUS - 1.5)
+                    away_win_pct = round(100.0 - home_win_pct, 1)
                 tb_winner = away_name
 
             print(f"    [🔀 타이브레이커] raw스코어 차이 {raw_score_gap:.1f}p ≤ {TIEBREAK_THRESHOLD}p | "
