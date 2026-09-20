@@ -47,6 +47,19 @@ TRIGGER_AFTER_MIN  = 40   # 최소 40분 전 (게임 직전 포스팅 방지)
 LINEUP_CONFIRM_THRESHOLD = 0.0
 
 
+def load_predictions() -> list:
+    """output/predictions.json 로드"""
+    pred_file = OUTPUT_DIR / "predictions.json"
+    if pred_file.exists():
+        try:
+            import json as _json
+            data = _json.loads(pred_file.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else data.get("games", [])
+        except Exception:
+            pass
+    return []
+
+
 def get_state_file(game_date: str) -> Path:
     return STATE_DIR / f"posted_{game_date}.json"
 
