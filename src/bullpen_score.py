@@ -113,6 +113,27 @@ def bullpen_score(stats: dict) -> float:
             score = max(0.0, score - 2.0)
 
     score = min(score, BULLPEN_SCORE_CAP)
+
+    # ── 불펜 최저 점수 플로어 (v16) ──────────────────────────────
+    # MLB 최악의 불펜도 실제로는 이닝을 소화함 — 22점 미만은 현실 불가
+    # 근거: KC 케이스(season ERA 5.0, recent ERA 6.75) → 15.4점으로
+    #       팀 total을 32.6까지 끌어내려 시장 대비 10%+ 오차 발생
+    #       시장(kalshi)은 KC를 49% 확률로 보는데 모델은 38.5%로 과도하게 저평가
+    # 시즌 ERA 기반 동적 플로어: 나쁜 불펜이라도 하한 보장
+    #   season_era < 4.50 → floor = 30 (평균 이상: 최소 30점)
+    #   season_era < 5.00 → floor = 25 (평균 수준: 최소 25점)
+    #   season_era < 5.50 → floor = 22 (나쁜 불펜: 최소 22점)
+    #   season_era ≥ 5.50 → floor = 18 (최악 불펜: 최소 18점)
+    if season_era < 4.50:
+        bp_floor = 30.0
+    elif season_era < 5.00:
+        bp_floor = 25.0
+    elif season_era < 5.50:
+        bp_floor = 22.0
+    else:
+        bp_floor = 18.0
+    score = max(score, bp_floor)
+
     return round(score, 1)
 
 

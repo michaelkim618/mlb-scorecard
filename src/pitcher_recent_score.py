@@ -429,10 +429,15 @@ def pitcher_score(stats: dict, season_era: float = None,
     # 5이닝 미만 선발은 선발로서의 기대값 자체가 낮음
     # 불펜 소진 가속 리스크 → SP 점수에서 직접 차감
     #   avg_ip < 4.0 → -4pt   avg_ip < 5.0 → -2pt
-    if avg_ip < 4.0:
-        score = max(0.0, score - 4.0)
-    elif avg_ip < 5.0:
-        score = max(0.0, score - 2.0)
+    #
+    # ★ v16 소샘플 예외: n_games < 4이면 avg_ip 페널티 건너뜀
+    #   1~3경기 데이터로는 투수의 실제 이닝 소화 능력을 판단할 수 없음
+    #   (Burnes 복귀 3경기 avg_ip=3.8이라도 시즌 능력은 다를 수 있음)
+    if n_games_val >= 4:
+        if avg_ip < 4.0:
+            score = max(0.0, score - 4.0)
+        elif avg_ip < 5.0:
+            score = max(0.0, score - 2.0)
 
     # ── 직전 등판 ERA 연속 보정 (v6) ────────────────────────────────────
     # 백테스트(279경기, 8/1~8/24) 결과: 이동 평균보다 직전 1경기 ERA가 더 정확
@@ -446,22 +451,28 @@ def pitcher_score(stats: dict, season_era: float = None,
     #   ≤ 6.00 (약간 부진) → -2.0pt
     #   ≤ 9.00 (나쁜 등판) → -7.0pt
     #     > 9.00 (완전 붕괴) → -10.0pt
+    #
+    # ★ v16 소샘플 스케일링: n_games < 5이면 패널티·보너스를 sample_confidence로 감쇠
+    #   이유: 2경기 ERA 9.64 하나로 -10pt 풀 패널티를 받는 건 과도함
+    #         (Burnes 케이스: conf=0.4 → -10 × 0.4 = -4pt로 완화)
+    #   보너스도 동일 비율로 감쇠 (소샘플 과대평가 방지)
     recent_avg_era = stats.get("recent_avg_era")
+    _recent_era_conf = conf if n_games_val < 5 else 1.0   # 소샘플: conf 스케일, 정상: 100%
     if recent_avg_era is not None:
         if recent_avg_era == 0.0:
-            score = min(100.0, score + 4.0)
+            score = min(100.0, score + 4.0 * _recent_era_conf)
         elif recent_avg_era <= 1.50:
-            score = min(100.0, score + 3.0)
+            score = min(100.0, score + 3.0 * _recent_era_conf)
         elif recent_avg_era <= 3.00:
-            score = min(100.0, score + 1.5)
+            score = min(100.0, score + 1.5 * _recent_era_conf)
         elif recent_avg_era <= 4.50:
             pass                              # 보정 없음
         elif recent_avg_era <= 6.00:
-            score = max(0.0, score - 2.0)
+            score = max(0.0, score - 2.0 * _recent_era_conf)
         elif recent_avg_era <= 9.00:
-            score = max(0.0, score - 7.0)
+            score = max(0.0, score - 7.0 * _recent_era_conf)
         else:
-            score = max(0.0, score - 10.0)
+            score = max(0.0, score - 10.0 * _recent_era_conf)
 
     # ── 패스트볼 구속 페널티 (v5) ────────────────────────────────────
     # 현대 MLB에서 92 mph 미만 패스트볼은 타자가 타이밍을 잡기 쉬워 실점 리스크 상승.
