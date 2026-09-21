@@ -128,15 +128,16 @@ def batting_score(stats: dict) -> float:
       - 최근 AVG→최근 OPS로 교체, 비중 30%→25%
       - 트렌드 보정: AND→OR 조건, ±4pt→±2pt (과민반응 완화)
     """
-    ops   = stats.get("season_ops", 0.720)
-    slg   = stats.get("season_slg", 0.400)
+    ops   = stats.get("season_ops") or 0.720
+    slg   = stats.get("season_slg") or 0.400
     # 최근 OPS 계산: recent_ops 없으면 recent_avg에서 추정 (OBP≈avg+0.06, OPS≈OBP+SLG)
-    recent_ops = stats.get("recent_ops",
-                           stats.get("recent_avg", 0.250) + 0.060 +
-                           stats.get("season_slg", 0.400) * 0.95)
-    rpg   = stats.get("runs_per_g", 4.3)
-    hr    = stats.get("hr_per_g",   1.1)
-    trend = stats.get("bat_trend", "stable")
+    _slg_fallback = stats.get("season_slg") or 0.400
+    recent_ops = stats.get("recent_ops") or (
+        (stats.get("recent_avg") or 0.250) + 0.060 + _slg_fallback * 0.95
+    )
+    rpg   = stats.get("runs_per_g") or 4.3
+    hr    = stats.get("hr_per_g")   or 1.1
+    trend = stats.get("bat_trend") or "stable"
 
     ops_s   = max(0.0, min(100.0, (ops        - 0.600) / 0.350 * 100.0))
     slg_s   = max(0.0, min(100.0, (slg        - 0.300) / 0.300 * 100.0))
