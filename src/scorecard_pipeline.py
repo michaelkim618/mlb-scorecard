@@ -37,7 +37,7 @@ from mlb_stats_fetcher    import (get_team_hitting_log, get_team_hitting_log_spl
                                    get_team_pitching_log,
                                    get_pitcher_gamelog, get_pitcher_season,
                                    get_standings_map, get_bullpen_era_direct,
-                                   get_recent_home_away_wpct)
+                                   get_recent_home_away_wpct, _load_season_db)
 from pitcher_recent_score import analyze_pitcher_recent, pitcher_score, _default_pitcher, get_pitcher_arsenal
 from bullpen_score        import bullpen_score, _default_bullpen
 from batting_score_v2     import (analyze_batting, analyze_lineup_batting,
@@ -169,7 +169,7 @@ def run(game_date: Optional[str] = None) -> list:
     # ── 타선 점수 하한선 (방법 C: 순위 기반 티어 + 시즌 블렌딩) ──────────
     _bat_floor_cfg          = sc_cfg.get("bat_floor", {})
     BAT_FLOOR_ENABLED       = bool(_bat_floor_cfg.get("enabled", True))
-    BAT_FLOOR_TRIGGER       = float(_bat_floor_cfg.get("trigger_below",    25.0))
+    BAT_FLOOR_TRIGGER       = float(_bat_floor_cfg.get("trigger_below",    32.0))  # v15: 25→32 (더 넓은 범위에서 시즌 블렌딩)
     BAT_FLOOR_BLEND_RATIO   = float(_bat_floor_cfg.get("season_blend_ratio", 0.40))
     _tier_floors            = _bat_floor_cfg.get("tier_floors", {})
     BAT_FLOOR_TOP           = float(_tier_floors.get("top",    35.0))
@@ -237,6 +237,8 @@ def run(game_date: Optional[str] = None) -> list:
         return out
 
     standings_map = _safe(get_standings_map, {}, "순위표")
+    # v15: 팀 시즌 타선 DB 로드 — batting hit_log 없을 때 season_rpg/slg fallback용
+    _season_bat_db = _safe(_load_season_db, {}, "시즌타선DB")
 
     def _recent_form(team_id: int, before_date: str, n: int = 5) -> dict:
         """팀 최근 n경기 W/L 결과 반환 (before_date 이전 경기만)"""
@@ -528,17 +530,33 @@ def run(game_date: Optional[str] = None) -> list:
         game_pk = g.get("gamePk")
         lineup  = _safe(lambda pk=game_pk: get_game_lineup(pk), None, "라인업") if game_pk else None
 
+        # v15: 시즌 DB에서 팀별 RPG/SLG 가져오기 (hit_log 빈 경우 fallback)
+        _away_sdb = _season_bat_db.get(str(away_id), {})
+        _home_sdb = _season_bat_db.get(str(home_id), {})
+        away_season_rpg = _away_sdb.get("runs_per_game")
+        home_season_rpg = _home_sdb.get("runs_per_game")
+        # SLG는 split_snapshot 최근 10경기 홈/원정 평균으로 추정
+        def _slg_from_snap(sdb: dict) -> float | None:
+            snaps = sdb.get("split_snapshot", {})
+            all_snaps = snaps.get("home", []) + snaps.get("away", [])
+            slg_vals = [float(s.get("slg", 0) or 0) for s in all_snaps if s.get("slg")]
+            return round(sum(slg_vals) / len(slg_vals), 3) if slg_vals else None
+        away_season_slg = _slg_from_snap(_away_sdb)
+        home_season_slg = _slg_from_snap(_home_sdb)
+
         if lineup and lineup.get("away") and lineup.get("home"):
             # ✅ ① 확정 라인업: 개인 타자 시즌OPS 기반 + 상대 손방향 스플릿
             bat_source = "lineup"
             away_bat_detail = _safe(
-                lambda lp=lineup["away"], hl=away_hit_log, hd=home_handedness:
-                    analyze_lineup_batting_with_splits(lp, hd, hl),
+                lambda lp=lineup["away"], hl=away_hit_log, hd=home_handedness,
+                       srpg=away_season_rpg, sslg=away_season_slg:
+                    analyze_lineup_batting_with_splits(lp, hd, hl, srpg, sslg),
                 _default_batting(), "원정 라인업 타선"
             )
             home_bat_detail = _safe(
-                lambda lp=lineup["home"], hl=home_hit_log, hd=away_handedness:
-                    analyze_lineup_batting_with_splits(lp, hd, hl),
+                lambda lp=lineup["home"], hl=home_hit_log, hd=away_handedness,
+                       srpg=home_season_rpg, sslg=home_season_slg:
+                    analyze_lineup_batting_with_splits(lp, hd, hl, srpg, sslg),
                 _default_batting(), "홈 라인업 타선"
             )
             away_lineup_names = [p["name"] for p in lineup["away"]]
@@ -560,13 +578,15 @@ def run(game_date: Optional[str] = None) -> list:
             if prev_away and prev_home:
                 # ✅ ② 전날 라인업 + LHP/RHP 스플릿 (스플릿 없으면 시즌OPS로 자동 fallback)
                 away_bat_detail = _safe(
-                    lambda lp=prev_away, hl=away_hit_log, hd=home_handedness:
-                        analyze_lineup_batting_with_splits(lp, hd, hl),
+                    lambda lp=prev_away, hl=away_hit_log, hd=home_handedness,
+                           srpg=away_season_rpg, sslg=away_season_slg:
+                        analyze_lineup_batting_with_splits(lp, hd, hl, srpg, sslg),
                     _default_batting(), "원정 전날라인업 타선"
                 )
                 home_bat_detail = _safe(
-                    lambda lp=prev_home, hl=home_hit_log, hd=away_handedness:
-                        analyze_lineup_batting_with_splits(lp, hd, hl),
+                    lambda lp=prev_home, hl=home_hit_log, hd=away_handedness,
+                           srpg=home_season_rpg, sslg=home_season_slg:
+                        analyze_lineup_batting_with_splits(lp, hd, hl, srpg, sslg),
                     _default_batting(), "홈 전날라인업 타선"
                 )
                 # source는 배팅분석 결과에서 가져옴 (splits 사용 여부에 따라 자동 결정)

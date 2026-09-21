@@ -270,6 +270,8 @@ def analyze_lineup_batting_with_splits(
     players: list,
     opp_handedness: str,
     team_hit_logs: list = None,
+    season_rpg: float = None,
+    season_slg: float = None,
 ) -> dict:
     """
     실제 라인업 타자 + 상대 투수 투구 방향 스플릿 기반 타선 분석
@@ -277,6 +279,8 @@ def analyze_lineup_batting_with_splits(
     players:         [{"id","name","pos"}, ...]
     opp_handedness:  상대 선발투수 투구 방향 ('L' or 'R')
     team_hit_logs:   팀 최근 게임로그 (득점/HR 보완용)
+    season_rpg:      팀 시즌 득점/경기 (hit_log 없을 때 fallback) — v15
+    season_slg:      팀 시즌 장타율 (batting_score slg 보완) — v15
     """
     from batter_stats import analyze_batter_with_splits
 
@@ -336,7 +340,8 @@ def analyze_lineup_batting_with_splits(
             elif rpg_cold or avg_cold:
                 bat_trend = "cold"
     else:
-        runs_per_g = 4.3
+        # v15: hit_log 없을 때 시즌 통계 fallback (4.3 고정값 대신 실제 시즌 RPG 사용)
+        runs_per_g = season_rpg if season_rpg is not None else 4.3
         hr_per_g   = 1.1
 
     # splits 실제 사용 여부 확인 (source에서 판단)
@@ -350,6 +355,7 @@ def analyze_lineup_batting_with_splits(
         "hr_per_g":        hr_per_g,
         "bb_per_g":        3.0,
         "season_ops":      avg_ops,
+        "season_slg":      season_slg,   # v15: batting_score slg 보완용
         "season_avg":      avg_recent,
         "n_games":         len(players),
         "source":          "prev_day_splits" if splits_used else "prev_day",
