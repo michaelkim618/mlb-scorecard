@@ -372,7 +372,7 @@ def run(game_date: Optional[str] = None) -> list:
                 away_gl = _safe(lambda p=away_est_pitcher["id"]: get_pitcher_gamelog(p, 10), [], "원정 추정투수 게임로그")
                 away_sp_detail  = analyze_pitcher_recent(away_gl, 10, game_date)
                 away_handedness = away_est_pitcher.get("handedness", "R")
-                away_is_tbd     = False  # 추정으로 대체됨
+                # NOTE: away_is_tbd는 True 유지 — 추정 투수는 미확정으로 표기
             else:
                 away_sp_detail  = _default_pitcher()
                 away_handedness = "R"
@@ -394,7 +394,7 @@ def run(game_date: Optional[str] = None) -> list:
                 home_gl = _safe(lambda p=home_est_pitcher["id"]: get_pitcher_gamelog(p, 10), [], "홈 추정투수 게임로그")
                 home_sp_detail  = analyze_pitcher_recent(home_gl, 10, game_date)
                 home_handedness = home_est_pitcher.get("handedness", "R")
-                home_is_tbd     = False  # 추정으로 대체됨
+                # NOTE: home_is_tbd는 True 유지 — 추정 투수는 미확정으로 표기
             else:
                 home_sp_detail  = _default_pitcher()
                 home_handedness = "R"

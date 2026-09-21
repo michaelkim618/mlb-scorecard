@@ -207,15 +207,58 @@ def estimate_rotation_pitcher(team_id: int, game_date: str) -> Optional[dict]:
         if not pitcher_last_start:
             return None
 
-        # 다음 선발 추정: 마지막 선발 + 5일 이 오늘에 가장 가까운 투수
+        # 다음 선발 추정: 마지막 선발 + 실제 평균 주기(최근 2경기 간격) 기반
+        # 고정 5일 가정은 야마모토처럼 7일 주기 투수를 오추정하는 원인이었음
+        # 개선:
+        #   1. 투수별 최근 2개 선발 날짜로 실제 주기 계산
+        #   2. 주기 범위 4~8일로 클램프 (너무 긴 부상 복귀는 제외)
+        #   3. 추정 다음 선발이 오늘 ±2일 범위 내에 없으면 해당 투수 제외
+        #      → 범위 밖이면 오늘 선발이 아니라고 판단 (Yamamoto 9/15→+7=9/22, 오늘 9/20: 차이 2일 → 이전엔 통과됐지만 이제 ±1일로 더 좁힘)
+
+        # 투수별 마지막 2경기 날짜를 모두 수집 (주기 계산용)
+        pitcher_starts: Dict[int, list] = {}
+        for date_entry in data.get("dates", []):
+            d_str = date_entry.get("date", "")
+            for game in date_entry.get("games", []):
+                teams = game.get("teams", {})
+                for side in ("away", "home"):
+                    t = teams.get(side, {})
+                    if t.get("team", {}).get("id") == team_id:
+                        pp = t.get("probablePitcher")
+                        if pp and pp.get("id"):
+                            pid = pp["id"]
+                            if pid not in pitcher_starts:
+                                pitcher_starts[pid] = []
+                            if d_str not in pitcher_starts[pid]:
+                                pitcher_starts[pid].append(d_str)
+
         today_ord = today_dt.toordinal()
         best_pitcher = None
         best_diff    = 9999
+        TOLERANCE    = 1   # 오늘 ±1일 이내만 허용 (기존 무제한 → 좁힘)
 
         for pid, info in pitcher_last_start.items():
-            last_dt      = datetime.strptime(info["last_start"], "%Y-%m-%d")
-            next_start   = last_dt + timedelta(days=5)
-            diff         = abs((next_start.toordinal()) - today_ord)
+            last_dt = datetime.strptime(info["last_start"], "%Y-%m-%d")
+
+            # 실제 투구 간격 계산 (가능하면)
+            starts_sorted = sorted(pitcher_starts.get(pid, []))
+            if len(starts_sorted) >= 2:
+                # 마지막 두 경기 간격
+                d1 = datetime.strptime(starts_sorted[-2], "%Y-%m-%d")
+                d2 = datetime.strptime(starts_sorted[-1], "%Y-%m-%d")
+                actual_interval = (d2 - d1).days
+                # 비정상 범위는 기본값 5일로 클램프
+                interval = max(4, min(8, actual_interval))
+            else:
+                interval = 5  # 데이터 부족 시 기본값
+
+            next_start = last_dt + timedelta(days=interval)
+            diff       = abs(next_start.toordinal() - today_ord)
+
+            # 허용 오차 ±TOLERANCE일 밖이면 오늘 선발 아님 → 제외
+            if diff > TOLERANCE:
+                continue
+
             if diff < best_diff:
                 best_diff    = diff
                 best_pitcher = info
