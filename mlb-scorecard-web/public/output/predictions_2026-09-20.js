@@ -1,4 +1,5 @@
-[
+// Auto-generated (scorecard) — 2026-09-20
+window.PREDICTIONS_DATA = [
   {
     "date": "2026-09-20",
     "status": "Preview",
@@ -8270,7 +8271,7 @@
       }
     ],
     "home_pitcher": "Blake Snell (TBD)",
-    "home_pitcher_id": 605483,
+    "home_pitcher_id": 808967,
     "home_pitcher_stats": {
       "wins": 14,
       "losses": 8,
@@ -8781,9 +8782,9 @@
     "lineup_confirmed": false,
     "sp_tbd": {
       "away": false,
-      "home": true,
+      "home": false,
       "both": false,
-      "any": true
+      "any": false
     },
     "actual_winner": null,
     "model_winner": "Los Angeles Dodgers",
@@ -10978,4 +10979,4 @@
     "low_confidence_reason": null,
     "model_version": "v14"
   }
-]
+];
