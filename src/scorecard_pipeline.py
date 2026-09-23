@@ -468,22 +468,26 @@ def run(game_date: Optional[str] = None) -> list:
         print(f"    [선발] {away_name} {away_pitcher}{tbd_tag_away}: ERA {away_sp_detail['era']} WHIP {away_sp_detail['whip']} trend={away_sp_detail['trend']}{_sp_note(away_sp_detail)} → {away_sp_s}점")
         print(f"    [선발] {home_name} {home_pitcher}{tbd_tag_home}: ERA {home_sp_detail['era']} WHIP {home_sp_detail['whip']} trend={home_sp_detail['trend']}{_sp_note(home_sp_detail)} → {home_sp_s}점")
 
-        # ── 1b. 오프너 감지 — avg_ip < 3.0이면 SP 스코어 ×0.7 디스카운트 ──
-        # 근거: BOS G2 사례 — Alec Gamboa(릴리버 선발)가 Max Fried와 동급 SP스코어(49.8)로
-        #       처리됨. 오프너/릴리버 기용 시 실질적 선발 역할을 못하므로 SP점수 하향.
-        #       avg_ip가 3이닝 미만이면 오프너 패턴으로 간주.
-        # 임계값 2.0: Gamboa(1.8) 같은 진짜 오프너는 잡고
-        # Lynch(2.0 경계), Bachar(2.1) 같은 조기강판 선발은 제외
+        # ── 1b. 오프너 감지 — avg_ip < 2.0이면 SP 스코어 ×0.5 디스카운트 + 불펜전 플래그 ──
+        # 근거: SD@LAD 9/22 사례 — Brock Stewart(avg_ip=0.8) 가 일반 선발로 처리됨.
+        #       오프너는 1~2이닝만 던지고 팀의 전체 불펜이 실질적인 '선발' 역할을 함.
+        #       따라서 SP 가중치를 크게 낮추고 BP 가중치를 대폭 높여야 함.
+        # 임계값 2.0: Brock Stewart(0.8), Gamboa(1.8) 같은 진짜 오프너는 잡고
+        #            Lynch(2.0 경계), Bachar(2.1) 같은 조기강판 선발은 제외
         OPENER_IP_THRESHOLD = 2.0
-        OPENER_SP_DISCOUNT  = 0.70   # ×70% → 30% 디스카운트
+        OPENER_SP_DISCOUNT  = 0.50   # ×50% → 50% 디스카운트 (기존 30%→50% 강화)
+        away_is_opener = False
+        home_is_opener = False
         if not away_is_tbd and away_sp_detail.get("avg_ip", 6.0) < OPENER_IP_THRESHOLD:
             orig = away_sp_s
             away_sp_s = round(away_sp_s * OPENER_SP_DISCOUNT, 1)
-            print(f"    [🔓 오프너감지] {away_name} {away_pitcher} avg_ip={away_sp_detail.get('avg_ip'):.1f} < {OPENER_IP_THRESHOLD} → SP {orig}→{away_sp_s}점 (-30%)")
+            away_is_opener = True
+            print(f"    [🔓 오프너감지] {away_name} {away_pitcher} avg_ip={away_sp_detail.get('avg_ip'):.1f} < {OPENER_IP_THRESHOLD} → SP {orig}→{away_sp_s}점 (-50%) [불펜전모드]")
         if not home_is_tbd and home_sp_detail.get("avg_ip", 6.0) < OPENER_IP_THRESHOLD:
             orig = home_sp_s
             home_sp_s = round(home_sp_s * OPENER_SP_DISCOUNT, 1)
-            print(f"    [🔓 오프너감지] {home_name} {home_pitcher} avg_ip={home_sp_detail.get('avg_ip'):.1f} < {OPENER_IP_THRESHOLD} → SP {orig}→{home_sp_s}점 (-30%)")
+            home_is_opener = True
+            print(f"    [🔓 오프너감지] {home_name} {home_pitcher} avg_ip={home_sp_detail.get('avg_ip'):.1f} < {OPENER_IP_THRESHOLD} → SP {orig}→{home_sp_s}점 (-50%) [불펜전모드]")
 
         # ── 2. 불펜 분석 (Option 2: 실제 불펜 투수 시즌 ERA 직접 계산) ──
         away_bp_detail = _safe(lambda aid=away_id: get_bullpen_era_direct(aid), _default_bullpen(), "원정 불펜ERA")
@@ -536,7 +540,7 @@ def run(game_date: Optional[str] = None) -> list:
         away_season_rpg = _away_sdb.get("runs_per_game")
         home_season_rpg = _home_sdb.get("runs_per_game")
         # SLG는 split_snapshot 최근 10경기 홈/원정 평균으로 추정
-        def _slg_from_snap(sdb: dict) -> float | None:
+        def _slg_from_snap(sdb: dict):
             snaps = sdb.get("split_snapshot", {})
             all_snaps = snaps.get("home", []) + snaps.get("away", [])
             slg_vals = [float(s.get("slg", 0) or 0) for s in all_snaps if s.get("slg")]
@@ -825,6 +829,22 @@ def run(game_date: Optional[str] = None) -> list:
             eff_bp_w  = 0.25
             cold_side = away_name if away_trend == "cold" else home_name
             print(f"    [🔄 불펜보정] {cold_side} 선발 Cold → 타선 {eff_bat_w:.0%} / 불펜 {eff_bp_w:.0%}로 조정")
+
+        # ── 오프너 감지 시 불펜 가중치 대폭 상향 ────────────────────
+        # 오프너가 있는 경우 해당 팀은 사실상 불펜 전력이 경기를 결정함.
+        # SP 가중치를 추가로 줄이고 BP 가중치를 크게 높임.
+        # (양팀 오프너: SP 0.10, BP 0.50 / 한팀 오프너: SP 0.20, BP 0.40)
+        if away_is_opener and home_is_opener:
+            eff_sp_w  = 0.10
+            eff_bp_w  = 0.50
+            eff_bat_w = round(1.0 - eff_sp_w - eff_bp_w - eff_sit_w, 2)
+            print(f"    [🔓 오프너불펜전] 양팀 모두 오프너 → SP {eff_sp_w:.0%} / BP {eff_bp_w:.0%} / BAT {eff_bat_w:.0%}")
+        elif away_is_opener or home_is_opener:
+            opener_team = away_name if away_is_opener else home_name
+            eff_sp_w  = max(0.20, eff_sp_w - 0.15)
+            eff_bp_w  = min(0.45, eff_bp_w + 0.20)
+            eff_bat_w = round(1.0 - eff_sp_w - eff_bp_w - eff_sit_w, 2)
+            print(f"    [🔓 오프너불펜보정] {opener_team} 오프너 → SP {eff_sp_w:.0%} / BP {eff_bp_w:.0%} / BAT {eff_bat_w:.0%}")
 
         # ── 타선 격차 민감도 보정 ─────────────────────────────────────
         # 타선 점수 차이가 클수록 타선 가중치를 상향 조정
@@ -1762,6 +1782,10 @@ def run(game_date: Optional[str] = None) -> list:
             } if sp_bat_conflict else None,
             "low_confidence": low_confidence,
             "low_confidence_reason": " / ".join(lc_reasons) if low_confidence else None,
+            "opener_game": {
+                "away": away_is_opener,
+                "home": home_is_opener,
+            },
             "model_version": MODEL_VERSION,
         })
 
