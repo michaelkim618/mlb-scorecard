@@ -30,8 +30,8 @@ STATE_DIR.mkdir(parents=True, exist_ok=True)
 PST = ZoneInfo("America/Los_Angeles")
 MLB_API = "https://statsapi.mlb.com/api/v1"
 
-# 하루 최대 예측 포스팅 횟수
-MAX_PREDICTION_POSTS = 3
+# 하루 최대 예측 포스팅 횟수 (예측 1회 + 결과 1회 = 하루 총 2회)
+MAX_PREDICTION_POSTS = 1
 
 # 경기 그룹핑 간격 (분) - 이 시간 내 경기는 같은 그룹으로 묶음
 GROUP_WINDOW_MIN = 45
@@ -690,3 +690,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
