@@ -23,7 +23,7 @@
   v6  (2026-08-21) — 홈팀 박빙 보정, 부상자 핵심도 구분, Kalshi 괴리 보정
 """
 
-MODEL_VERSION = "v15"
+MODEL_VERSION = "v17"
 import json
 import sys
 from pathlib import Path
@@ -1354,14 +1354,23 @@ def run(game_date: Optional[str] = None) -> list:
         if sp_bat_conflict:
             sp_favors  = away_name if sp_gap  > 0 else home_name
             bat_favors = away_name if bat_gap > 0 else home_name
+            # ── 개선 2: SP-타선 충돌 시 타선 가중치 추가 상향 ──────────
+            # 근거: 최근 분석에서 충돌 발생 시 타선이 강한 팀이 더 자주 이김
+            # BAT 가중치 +0.07 (SP에서 차감), SP 하한 0.20 보장
+            _conflict_bat_boost = 0.07
+            _conflict_sp_cut = min(_conflict_bat_boost, max(0.0, eff_sp_w - 0.20))
+            eff_bat_w = round(eff_bat_w + _conflict_sp_cut, 2)
+            eff_sp_w  = round(eff_sp_w  - _conflict_sp_cut, 2)
             print(f"    [⚠️ SP↔BAT 충돌] SP우위={sp_favors}({sp_gap:+.1f}pt) ↔ "
-                  f"BAT우위={bat_favors}({bat_gap:+.1f}pt) → 예측 신뢰도 주의")
+                  f"BAT우위={bat_favors}({bat_gap:+.1f}pt) "
+                  f"→ BAT 가중치 {eff_bat_w-_conflict_sp_cut:.0%}→{eff_bat_w:.0%} "
+                  f"(SP {eff_sp_w+_conflict_sp_cut:.0%}→{eff_sp_w:.0%}) [타선 신뢰 우선]")
 
         # ── 🔍 예측 신뢰도 판정 ──────────────────────────────────────────
         # 조건 1: SP 점수 차이 5pt 이하 → 선발 동급 → 예측 불확실
         # 조건 2: 최종 승리 확률 55% 이하 → 박빙 경기 → 예측 불확실
         SP_CONFIDENCE_THRESHOLD   = 5.0
-        PROB_CONFIDENCE_THRESHOLD = 58.0   # 이 확률 이하면 low_confidence (v2: 55→58%)
+        PROB_CONFIDENCE_THRESHOLD = 62.0   # 이 확률 이하면 low_confidence (v3: 58→62%)
         sp_score_gap = abs(away_sp_s - home_sp_s)
         top_prob     = max(away_win_pct, home_win_pct)
 
