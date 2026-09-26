@@ -167,6 +167,25 @@ jobs:
           python src/scorecard_pipeline.py ${{ steps.config.outputs.RUN_DATE }}
           echo "✅ 예측 완료 — SNS 포스팅 없음, 홈페이지만 업데이트"
 
+      # daily_init: 내일 경기 미리보기 예측 생성 (preview 모드 — predictions.json 보호)
+      - name: 내일 경기 미리보기 예측 생성 (daily_init)
+        if: steps.config.outputs.MODE == 'daily_init'
+        env:
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: |
+          TOMORROW=$(TZ='America/Los_Angeles' date -d "tomorrow" +%Y-%m-%d 2>/dev/null || TZ='America/Los_Angeles' date -v+1d +%Y-%m-%d)
+          echo "🔮 내일($TOMORROW) 미리보기 예측 생성 중 (preview 모드)..."
+          python src/scorecard_pipeline.py $TOMORROW --preview || echo "⚠️ 내일 예측 생성 실패 (계속 진행)"
+          # 웹 레포에 복사
+          PREVIEW_JS="output/predictions_preview_${TOMORROW}.js"
+          if [ -f "$PREVIEW_JS" ]; then
+            mkdir -p mlb-scorecard-web/public/output
+            cp "$PREVIEW_JS" "mlb-scorecard-web/public/output/predictions_preview_${TOMORROW}.js"
+            echo "✅ predictions_preview_${TOMORROW}.js → 웹 레포 복사 완료"
+          else
+            echo "⚠️ preview JS 파일 생성 안됨 — 스킵"
+          fi
+
       # daily_init: TBD 선발투수 이메일 알림
       - name: TBD 선발투수 이메일 알림 (daily_init)
         if: steps.config.outputs.MODE == 'daily_init'

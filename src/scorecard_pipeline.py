@@ -121,7 +121,11 @@ def _expected_runs(bat_score: float, opp_def_score: float,
     return round(lam * (1.0 + home_bonus), 1)
 
 
-def run(game_date: Optional[str] = None) -> list:
+def run(game_date: Optional[str] = None, preview_mode: bool = False) -> list:
+    """
+    preview_mode=True → 내일 예측용 (predictions.json 덮어쓰기 금지,
+    파일명: predictions_preview_YYYY-MM-DD.js)
+    """
     if game_date is None:
         game_date = date.today().isoformat()
 
@@ -1801,16 +1805,28 @@ def run(game_date: Optional[str] = None) -> list:
     # ── 저장 ──────────────────────────────────────────────────────────
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     json_payload = json.dumps(results, ensure_ascii=False, indent=2)
-    (OUTPUT_DIR / "predictions.json").write_text(json_payload, encoding="utf-8")
-    (OUTPUT_DIR / f"predictions_{game_date}.js").write_text(
-        f"// Auto-generated (scorecard) — {game_date}\nwindow.PREDICTIONS_DATA = {json_payload};\n",
-        encoding="utf-8"
-    )
-    print(f"저장 완료 ({len(results)}경기)")
 
-    # ── 웹사이트 public/predictions.json + dated JS 자동 동기화 ───────
-    js_filename = f"predictions_{game_date}.js"
-    js_payload  = f"// Auto-generated (scorecard) — {game_date}\nwindow.PREDICTIONS_DATA = {json_payload};\n"
+    # preview_mode: predictions.json 덮어쓰기 금지 (내일 예측 전용)
+    if not preview_mode:
+        (OUTPUT_DIR / "predictions.json").write_text(json_payload, encoding="utf-8")
+
+    # JS 파일명: preview_mode면 predictions_preview_YYYY-MM-DD.js
+    js_filename = (
+        f"predictions_preview_{game_date}.js" if preview_mode
+        else f"predictions_{game_date}.js"
+    )
+    js_payload = (
+        f"// Auto-generated (scorecard preview) — {game_date}\n"
+        f"window.PREDICTIONS_PREVIEW_DATA = {json_payload};\n"
+        if preview_mode
+        else
+        f"// Auto-generated (scorecard) — {game_date}\n"
+        f"window.PREDICTIONS_DATA = {json_payload};\n"
+    )
+    (OUTPUT_DIR / js_filename).write_text(js_payload, encoding="utf-8")
+    print(f"저장 완료 ({len(results)}경기) {'[PREVIEW 모드 — predictions.json 보호됨]' if preview_mode else ''}")
+
+    # ── 웹사이트 public/ 동기화 ──────────────────────────────────────
     WEB_PUBLIC_DIRS = [
         Path(__file__).parent.parent / "mlb-scorecard-web" / "public",
         Path(__file__).parent.parent / "mlb-scorecard-web" / "dist",
@@ -1821,19 +1837,28 @@ def run(game_date: Optional[str] = None) -> list:
         if not web_dir.exists():
             print(f"  [🌐 웹싱크] {web_dir} 없음 — 스킵")
             continue
-        # predictions.json (항상 최신)
-        (web_dir / "predictions.json").write_text(json_payload, encoding="utf-8")
+        # preview_mode: predictions.json 절대 덮어쓰지 않음
+        if not preview_mode:
+            (web_dir / "predictions.json").write_text(json_payload, encoding="utf-8")
         # 날짜별 JS 파일 → output/ 폴더에 저장
         out_dir = web_dir / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / js_filename).write_text(js_payload, encoding="utf-8")
-        print(f"  [🌐 웹싱크] {web_dir} — predictions.json + output/{js_filename} 저장 완료")
+        mode_label = "PREVIEW" if preview_mode else "predictions.json +"
+        print(f"  [🌐 웹싱크] {web_dir} — {mode_label} output/{js_filename} 저장 완료")
 
     return results
 
 
 if __name__ == "__main__":
     import sys as _sys
-    d = _sys.argv[1] if len(_sys.argv) > 1 else None
-    run(d)
+    # 사용법: python scorecard_pipeline.py [날짜] [--preview]
+    #   날짜 없음        → 오늘 예측 (정상 모드)
+    #   2026-09-26       → 해당 날짜 예측 (정상 모드)
+    #   2026-09-26 --preview  → 내일 미리보기 (predictions.json 덮어쓰기 안 함)
+    args = _sys.argv[1:]
+    _preview = "--preview" in args
+    _date_args = [a for a in args if not a.startswith("--")]
+    d = _date_args[0] if _date_args else None
+    run(d, preview_mode=_preview)
 
