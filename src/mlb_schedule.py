@@ -49,6 +49,9 @@ PITCHER_OVERRIDES: dict = {
     "2026-09-12": {
         158: ("Kyle Harrison", 690986),  # MIL home vs CIN (API가 TBD로 표시)
     },
+    "2026-09-25": {
+        109: ("Taylor Clarke", 664199),  # ARI away @ SD (API가 Corbin Burnes TBD로 잘못 표시)
+    },
 }
 
 
