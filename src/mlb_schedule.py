@@ -77,7 +77,8 @@ def get_games(game_date: Optional[str] = None) -> List[Dict]:
     games = []
     for date_block in data.get("dates", []):
         for g in date_block.get("games", []):
-            if g.get("gameType") != "R":
+            # R=정규시즌, F=와일드카드, D=디비전시리즈, L=리그챔피언십, W=월드시리즈
+            if g.get("gameType") not in ("R", "F", "D", "L", "W"):
                 continue
 
             away = g["teams"]["away"]
