@@ -255,7 +255,7 @@ def run(game_date: Optional[str] = None, preview_mode: bool = False) -> list:
                 f"?sportId=1&teamId={team_id}"
                 f"&startDate={start.strftime('%Y-%m-%d')}"
                 f"&endDate={end.strftime('%Y-%m-%d')}"
-                f"&hydrate=decisions,linescore&gameType=R"
+                f"&hydrate=decisions,linescore&gameType=R,F,D,L,W"
             )
             data = _requests.get(url, timeout=8).json()
             results_list = []
