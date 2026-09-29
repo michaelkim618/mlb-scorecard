@@ -252,6 +252,33 @@ jobs:
             echo "✅ predictions.json 날짜 정상 ($TODAY) — 복구 불필요"
           fi
 
+      # ── prediction 모드: 내일 preview 파일 항상 최신화 ──
+      # daily_init 에서 생성한 preview 파일이 파이프라인 오류·gameType 미지원 등으로
+      # 누락됐을 때 prediction 모드 매 실행에서 자동 재생성하여 탭이 사라지지 않도록 보장.
+      - name: 내일 경기 미리보기 최신화 (prediction 모드 — 탭 소멸 방지)
+        if: steps.config.outputs.MODE == 'prediction'
+        env:
+          SPORTS_DATA_API_KEY: ${{ secrets.SPORTS_DATA_API_KEY }}
+        run: |
+          TOMORROW=$(TZ='America/Los_Angeles' date -d "tomorrow" +%Y-%m-%d 2>/dev/null || TZ='America/Los_Angeles' date -v+1d +%Y-%m-%d)
+          PREVIEW_DST="mlb-scorecard-web/public/output/predictions_preview_${TOMORROW}.js"
+
+          # 이미 preview 파일이 있으면 재생성 스킵 (불필요한 파이프라인 실행 방지)
+          if [ -f "$PREVIEW_DST" ]; then
+            echo "✅ predictions_preview_${TOMORROW}.js 이미 존재 — 재생성 스킵"
+          else
+            echo "🔮 내일($TOMORROW) preview 파일 없음 → 재생성 중..."
+            python src/scorecard_pipeline.py $TOMORROW --preview || echo "⚠️ 내일 예측 생성 실패 (계속 진행)"
+            PREVIEW_JS="output/predictions_preview_${TOMORROW}.js"
+            if [ -f "$PREVIEW_JS" ]; then
+              mkdir -p mlb-scorecard-web/public/output
+              cp "$PREVIEW_JS" "$PREVIEW_DST"
+              echo "✅ predictions_preview_${TOMORROW}.js → 웹 레포 복사 완료"
+            else
+              echo "⚠️ preview JS 생성 안됨 (경기 없는 날일 수 있음)"
+            fi
+          fi
+
       # ── prediction / results 모드: 포스팅 ──
 
       - name: 포스팅 상태 & predictions.json 복원 (웹 레포 git — 신뢰성 보장)
@@ -546,3 +573,4 @@ jobs:
             git diff --staged --quiet || git commit -m "📊 Auto-update: ${{ steps.config.outputs.RUN_DATE }} (${{ steps.config.outputs.MODE }}) [retry]"
             git push || echo "⚠️ 최종 push도 실패 (다음 run에서 재시도됨)"
           fi
+
