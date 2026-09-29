@@ -129,7 +129,7 @@ def build_game_entry(g, date_str):
         "away_score":    (g.get("actual_score") or {}).get("away"),
         "home_score":    (g.get("actual_score") or {}).get("home"),
         "correct":       bool(g.get("model_correct")),
-        "high_conf":     pick_prob >= 65.0,
+        "high_conf":     pick_prob >= 63.0,
         # SP / 불펜 데이터 (Cold SP 패턴 분석용)
         "away_sp_trend":  away_sp_detail.get("trend"),
         "home_sp_trend":  home_sp_detail.get("trend"),
@@ -434,3 +434,4 @@ def update(web_repo=None):
 
 if __name__ == "__main__":
     update()
+
