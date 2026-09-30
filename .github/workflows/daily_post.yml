@@ -509,7 +509,7 @@ jobs:
           live_pks = set()
           for db in data.get("dates", []):
               for g in db.get("games", []):
-                  if g.get("gameType") != "R":
+                  if g.get("gameType") not in ("R", "F", "D", "L", "W"):
                       continue
                   state   = g["status"]["abstractGameState"]
                   detail  = g["status"].get("detailedState", "")
