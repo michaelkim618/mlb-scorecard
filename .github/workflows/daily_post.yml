@@ -472,11 +472,23 @@ jobs:
             && echo "✅ 블로그 생성 완료" \
             || { echo "❌ 블로그 생성 실패 (daily_init 모드)"; }
 
-      # ── 최종 안전망: lineup_confirmed 강제 동기화 (커밋 직전, 항상 실행) ──
+      # ── 최종 안전망: lineup_confirmed + TBD 선발투수 강제 동기화 (커밋 직전, 항상 실행) ──
       # Python 코드(check_and_post.py)의 patch_lineup_confirmed()와 독립적으로 동작.
       # 파이프라인 오류·백업 실패·타이밍 문제 등 어떤 이유로도 stale 데이터가
       # 커밋되지 않도록 MLB API를 직접 조회해 predictions.json을 패치한다.
-      - name: lineup_confirmed 최종 동기화 (커밋 직전 — 항상 실행)
+      #
+      # TBD 선발투수 패치 추가 배경:
+      #   "당일 예측 누락 시 자동 복구" 스텝은 predictions.json 날짜가 오늘과 일치하면
+      #   파이프라인을 재실행하지 않고 스킵한다. 그래서 daily_init 시점에 로테이션
+      #   추정(estimate_rotation_pitcher)으로 채워진 "OOO (TBD)" 선발투수가, 이후
+      #   실제 확정 선발이 나와도 날짜 재생성 조건에 안 걸려 영원히 갱신되지 않는
+      #   사각지대가 있었다 (예: ATL 선발 추정 Chris Sale → 실제 확정 Ray Kerr,
+      #   경기가 LIVE로 진행 중인데도 홈페이지는 TBD 추정값을 계속 보여줌).
+      #   이 스텝은 MLB API의 실시간 probablePitcher를 조회해 이름에 "(TBD)"가
+      #   붙어있는 선발을 확정 선발로 직접 교체한다 (SP 스코어 재계산은 하지 않는
+      #   가벼운 패치 — 표시용 이름/ID만 갱신. 정확한 점수 반영은 다음 전체
+      #   파이프라인 재실행에서 이뤄짐).
+      - name: lineup_confirmed + TBD 선발투수 최종 동기화 (커밋 직전 — 항상 실행)
         run: |
           python3 - <<'PYEOF'
           import requests, json, sys
@@ -492,11 +504,11 @@ jobs:
               print("⚠️  predictions.json 없음 — 스킵")
               sys.exit(0)
 
-          # MLB API에서 오늘 경기 상태 조회
+          # MLB API에서 오늘 경기 상태 + 확정 선발투수 조회
           try:
               resp = requests.get(
                   "https://statsapi.mlb.com/api/v1/schedule",
-                  params={"sportId": 1, "date": TODAY, "hydrate": "lineups"},
+                  params={"sportId": 1, "date": TODAY, "hydrate": "lineups,probablePitcher"},
                   timeout=15,
               )
               resp.raise_for_status()
@@ -505,8 +517,9 @@ jobs:
               print(f"⚠️  MLB API 오류: {e} — 스킵")
               sys.exit(0)
 
-          # 라인업 확정 경기의 gamePk 수집
+          # 라인업 확정 경기의 gamePk 수집 + gamePk별 확정 선발투수 매핑
           live_pks = set()
+          probable_by_pk = {}   # {gamePk: {"away": {"id","name"}, "home": {...}}}
           for db in data.get("dates", []):
               for g in db.get("games", []):
                   if g.get("gameType") not in ("R", "F", "D", "L", "W"):
@@ -514,32 +527,62 @@ jobs:
                   state   = g["status"]["abstractGameState"]
                   detail  = g["status"].get("detailedState", "")
                   lineups = g.get("lineups", {})
+                  pk      = str(g["gamePk"])
                   if (state in ("Live", "Final")
                           or detail in ("Warmup", "In Progress", "Final")
                           or (lineups.get("awayPlayers") and lineups.get("homePlayers"))):
-                      live_pks.add(str(g["gamePk"]))
+                      live_pks.add(pk)
 
-          print(f"MLB API 확인: 라인업 확정 {len(live_pks)}경기")
-          if not live_pks:
-              print("ℹ️  확정 경기 없음 — 스킵")
-              sys.exit(0)
+                  teams = g.get("teams", {})
+                  pp_map = {}
+                  for side in ("away", "home"):
+                      pp = teams.get(side, {}).get("probablePitcher")
+                      if pp and pp.get("id") and pp.get("fullName"):
+                          pp_map[side] = {"id": pp["id"], "name": pp["fullName"]}
+                  if pp_map:
+                      probable_by_pk[pk] = pp_map
+
+          print(f"MLB API 확인: 라인업 확정 {len(live_pks)}경기 | 확정 선발 조회 {len(probable_by_pk)}경기")
 
           # predictions.json 패치
           preds = json.loads(PRED.read_text(encoding="utf-8"))
           preds_list = preds.get("games", []) if isinstance(preds, dict) else preds
 
-          updated = 0
+          lineup_updated = 0
+          pitcher_updated = 0
           for p in preds_list:
-              if str(p.get("game_pk", "")) in live_pks and not p.get("lineup_confirmed"):
-                  p["lineup_confirmed"] = True
-                  updated += 1
+              pk = str(p.get("game_pk", ""))
 
-          if updated:
+              if pk in live_pks and not p.get("lineup_confirmed"):
+                  p["lineup_confirmed"] = True
+                  lineup_updated += 1
+
+              # TBD 선발투수 교체: 저장된 이름에 "(TBD)"가 있고, MLB API가 확정 선발을
+              # 갖고 있으며, 그 투수 id가 현재 저장된 추정 id와 다를 때만 교체
+              pp_map = probable_by_pk.get(pk)
+              if not pp_map:
+                  continue
+              for side, field, id_field in (
+                  ("away", "away_pitcher", "away_pitcher_id"),
+                  ("home", "home_pitcher", "home_pitcher_id"),
+              ):
+                  current_name = p.get(field, "") or ""
+                  confirmed = pp_map.get(side)
+                  if "(TBD)" not in current_name or not confirmed:
+                      continue
+                  if p.get(id_field) == confirmed["id"]:
+                      continue
+                  print(f"  🔁 {pk} {side}: \"{current_name}\" → \"{confirmed['name']}\"")
+                  p[field] = confirmed["name"]
+                  p[id_field] = confirmed["id"]
+                  pitcher_updated += 1
+
+          if lineup_updated or pitcher_updated:
               out = json.dumps(preds_list, indent=2, ensure_ascii=False)
               PRED.write_text(out, encoding="utf-8")
-              print(f"✅ lineup_confirmed 패치 완료: {updated}경기 → True")
+              print(f"✅ 패치 완료: lineup_confirmed {lineup_updated}경기 / TBD 선발투수 {pitcher_updated}건")
           else:
-              print("✅ 모든 확정 경기 이미 lineup_confirmed=True — 패치 불필요")
+              print("✅ 패치할 변경사항 없음")
           PYEOF
 
       - name: 웹 레포 커밋 & 푸시 (항상)
