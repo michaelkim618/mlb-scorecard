@@ -394,14 +394,35 @@ def get_bullpen_era_direct(team_id: int, starter_gs_threshold: int = 5) -> dict:
 # ─── 선발투수 개인 스탯 ──────────────────────────────────────────────
 
 def get_pitcher_gamelog(pitcher_id: int, limit: int = 6) -> list:
-    """선발투수 최근 N경기 스탯"""
-    data = _get(f"{BASE}/people/{pitcher_id}/stats", {
-        "stats": "gameLog",
-        "group": "pitching",
-        "season": SEASON,
-        "limit": limit,
-    })
-    splits = data.get("stats", [{}])[0].get("splits", [])
+    """
+    선발투수 최근 N경기 스탯.
+
+    MLB Stats API의 기본 gameLog(group=pitching)는 gameType을 지정하지 않으면
+    정규시즌(R) 경기만 반환하고 포스트시즌(Wild Card/디비전/리그/월드시리즈) 등판은
+    누락된다. 포스트시즌 기간에는 정규시즌 마지막 등판만 보이고 가장 최근의
+    포스트시즌 등판(예: 2025-10-02 Wild Card 선발)이 최근 기록에서 빠지는 버그가 있었음.
+    → 정규시즌 + 포스트시즌(gameType=P) 로그를 모두 가져와 날짜순으로 합친 뒤
+      가장 최근 limit경기만 사용한다.
+    """
+    def _fetch(game_type: str = None):
+        params = {
+            "stats": "gameLog",
+            "group": "pitching",
+            "season": SEASON,
+            "limit": limit,
+        }
+        if game_type:
+            params["gameType"] = game_type
+        data = _get(f"{BASE}/people/{pitcher_id}/stats", params)
+        return data.get("stats", [{}])[0].get("splits", [])
+
+    splits = _fetch()                 # 정규시즌(R)
+    splits += _fetch(game_type="P")   # 포스트시즌(Wild Card/디비전/리그/월드시리즈)
+
+    # 날짜순 정렬(오래된 → 최신) 후 가장 최근 limit경기만 사용
+    splits.sort(key=lambda s: s.get("date", ""))
+    splits = splits[-limit:] if limit else splits
+
     # 팀ID → 약자 매핑
     _ABBR = {
         108:'LAA',109:'OAK',110:'BAL',111:'BOS',112:'CHC',113:'CIN',114:'CLE',115:'COL',
@@ -410,7 +431,7 @@ def get_pitcher_gamelog(pitcher_id: int, limit: int = 6) -> list:
         143:'PHI',144:'ATL',145:'CWS',146:'MIA',147:'NYY',158:'MIL',
     }
     result = []
-    for s in splits[:limit]:
+    for s in splits:
         entry = dict(s["stat"])
         if "date" in s:
             entry["_game_date"] = s["date"]  # 등판 날짜 (휴식일 계산용)
