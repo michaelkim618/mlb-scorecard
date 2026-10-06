@@ -414,7 +414,11 @@ def get_pitcher_gamelog(pitcher_id: int, limit: int = 6) -> list:
         if game_type:
             params["gameType"] = game_type
         data = _get(f"{BASE}/people/{pitcher_id}/stats", params)
-        return data.get("stats", [{}])[0].get("splits", [])
+        # 포스트시즌 등판이 없는 투수는 "stats" 키가 빈 리스트([])로 내려와
+        # [0] 인덱싱 시 IndexError가 나고, 이게 잡히지 않으면 정규시즌 로그까지
+        # 통째로 날아가 버린다(예: 야마모토 10/6 경기 로그 전체 누락 버그).
+        stats = data.get("stats") or [{}]
+        return stats[0].get("splits", [])
 
     splits = _fetch()                 # 정규시즌(R)
     splits += _fetch(game_type="P")   # 포스트시즌(Wild Card/디비전/리그/월드시리즈)
