@@ -1674,8 +1674,18 @@ def run(game_date: Optional[str] = None, preview_mode: bool = False) -> list:
                   f"= net_home {net_home:+.1f} → {tb_winner} 선택")
 
         # ── 모델 적중 판정 ────────────────────────────────────────────
+        # 주의: 박빙보정(9.5)이 확률을 정확히 50.0/50.0으로 바닥처리(floor)하는
+        # 경우가 있다. 이때 단순히 ">="로 비교하면 항상 홈팀이 선택되어,
+        # 보정 전까지 원정팀이 더 우세했던 raw 스코어카드 결과와 모순되는
+        # model_winner가 나올 수 있다 (예: CLE@CWS 849832, raw 63.7 vs 57.0
+        # 인데도 50/50 타이로 뭉개져 홈팀이 기본값으로 찍히던 버그).
+        # → 완전 동률일 때는 HOME_BONUS 반영 전 raw 스코어카드 총점으로
+        #   승자를 가린다 (순수 실력 비교가 임의의 홈 기본값보다 낫다).
         actual_winner = g.get("actual_winner")
-        model_winner  = home_name if home_win_pct >= away_win_pct else away_name
+        if home_win_pct == away_win_pct:
+            model_winner = home_name if sc["home_total"] >= sc["away_total"] else away_name
+        else:
+            model_winner = home_name if home_win_pct > away_win_pct else away_name
         model_correct = (model_winner == actual_winner) if actual_winner else None
 
         # ── 13. 팀 순위 정보 ──────────────────────────────────────────
