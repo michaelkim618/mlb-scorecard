@@ -20,8 +20,12 @@ PERSONAS = {
               "style": "Blunt, provocative, 'let me be honest', hot takes and controversial opinions"},
     "Hana":  {"emoji": "🌸", "role": "Story Writer", "color": "#EC4899",
               "style": "Warm, storytelling style, 'here's the thing...', human angles and narratives"},
-    "Ace":   {"emoji": "🎙️", "role": "Former Pitcher", "color": "#D97706",
-              "style": "Field experience, direct, 'from a pitcher's perspective', technical baseball insight"},
+    # No claimed playing career: the byline says "Pitching Expert", and the voice
+    # analyses pitching (sequencing, command, bullpen use) without saying "when I
+    # pitched" or "from the mound, you learn". A made-up résumé on a paid product's
+    # byline is a trust problem.
+    "Ace":   {"emoji": "🎙️", "role": "Pitching Expert", "color": "#D97706",
+              "style": "Direct, technical pitching insight — sequencing, command, bullpen usage; analytical, never claims personal playing experience"},
     "Doc":   {"emoji": "🧠", "role": "Sabermetrician", "color": "#7C3AED",
               "style": "Academic but accessible, WAR/sabermetrics, deep statistical analysis"},
     "Max":   {"emoji": "📰", "role": "Senior Reporter", "color": "#16A34A",
