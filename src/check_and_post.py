@@ -92,7 +92,10 @@ def get_today_games(game_date: str) -> list:
     games = []
     for date_block in data.get("dates", []):
         for g in date_block.get("games", []):
-            if g.get("gameType") != "R":
+            # R=정규시즌, F=와일드카드, D=디비전시리즈, L=챔피언십시리즈, W=월드시리즈
+            # (scorecard_pipeline/mlb_schedule.py와 동일한 범위. 예전에는 "R"만 허용해서
+            #  포스트시즌 경기가 "오늘 경기 없음"으로 무시되어 선발·라인업 갱신이 안 됐다.)
+            if g.get("gameType") not in ("R", "F", "D", "L", "W"):
                 continue
             # UTC → PST 변환
             game_dt_str = g.get("gameDate", "")
@@ -127,6 +130,10 @@ def get_today_games(game_date: str) -> list:
                 "game_time_str":     game_dt_pst.strftime("%I:%M %p PST"),
                 "lineup_confirmed":  lineup_confirmed,
                 "status":            abstract_state,
+                # 포스트시즌은 홈페이지 갱신만 하고 SNS 포스팅은 하지 않는다
+                "postseason":        g.get("gameType") != "R",
+                "away_sp_id":        (g["teams"]["away"].get("probablePitcher") or {}).get("id"),
+                "home_sp_id":        (g["teams"]["home"].get("probablePitcher") or {}).get("id"),
             })
 
     # 시작 시간순 정렬
@@ -495,9 +502,39 @@ def check_and_post_predictions(game_date: str):
             lineup_refreshed = True
             break  # 한 번에 하나씩
 
+    # ── 선발투수 발표 감지 → 홈페이지 예측 갱신 ─────────────────────────────
+    # 라인업 확정 전이라도 TBD였던 선발이 발표되면 predictions.json을 다시 계산한다.
+    if not lineup_refreshed:
+        _preds = {p.get("game_pk"): p for p in load_predictions() if p.get("date") == game_date}
+        for group in groups:
+            key = group_key(group)
+            if key in frozen_groups:
+                continue
+            newly_announced = []
+            for g in group:
+                pr = _preds.get(g["gamePk"])
+                if not pr or pr.get("actual_winner"):
+                    continue
+                tbd = pr.get("sp_tbd") or {}
+                if (tbd.get("away") and g.get("away_sp_id")) or (tbd.get("home") and g.get("home_sp_id")):
+                    newly_announced.append(g)
+            if newly_announced:
+                names = ", ".join(f"{g['away']} @ {g['home']}" for g in newly_announced)
+                print(f"\n🧢 선발 발표 감지 ({names}) → predictions.json 갱신")
+                run_pipeline(game_date)
+                apply_frozen_predictions(game_date, state)
+                copy_predictions_to_web(game_date)
+                lineup_refreshed = True
+                break
+
     # ── 신규 그룹 포스팅 찾기 ────────────────────────────────────────────────
     for group in groups:
         key = group_key(group)
+
+        # 포스트시즌 그룹은 홈페이지 갱신만, SNS 포스팅은 하지 않는다
+        if any(g.get("postseason") for g in group):
+            print(f"\n🏆 그룹 {key}: 포스트시즌 — SNS 포스팅 생략 (홈페이지 갱신만)")
+            continue
 
         # 이미 포스팅한 그룹이면 스킵
         if key in posted_groups:
